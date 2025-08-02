@@ -6,6 +6,8 @@ use std::sync::Arc;
 use tokio::time::{interval, Duration};
 use tracing::info;
 
+use super::r#trait::WindowDetectorTrait;
+
 pub struct DryRunDetector {
     key_repeater: Arc<KeyRepeater>,
 }
@@ -58,5 +60,12 @@ impl DryRunDetector {
                 ))
             })?;
         Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl WindowDetectorTrait for DryRunDetector {
+    async fn run(mut self: Box<Self>) -> Result<()> {
+        (*self).run().await
     }
 }

@@ -13,7 +13,7 @@ mod utils;
 use config::Config;
 use services::{
     create_keyboard_listener,
-    WindowDetector,
+    create_window_detector,
     KeyRepeater,
 };
 
@@ -61,7 +61,7 @@ async fn main() -> Result<()> {
     // Инициализация компонентов (KeyRepeater создается первым для передачи в другие сервисы)
     let key_repeater = Arc::new(KeyRepeater::new(config.clone(), args.dry_run)?);
     let keyboard_listener = create_keyboard_listener(config.clone(), key_repeater.clone(), args.dry_run)?;
-    let window_detector = WindowDetector::new(config.clone(), key_repeater.clone(), args.dry_run)?;
+    let window_detector = create_window_detector(config.clone(), key_repeater.clone(), args.dry_run)?;
 
     info!("Все компоненты инициализированы");
 

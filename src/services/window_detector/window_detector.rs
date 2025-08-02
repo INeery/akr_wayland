@@ -10,11 +10,11 @@ use tokio::time::{interval, Duration};
 use parking_lot::RwLock;
 use std::process::Command;
 
-use super::dry_run::DryRunDetector;
 use super::kdotool::KdotoolDetector;
 use super::xdotool::XdotoolDetector;
 use super::wmctrl::WmctrlDetector;
 use super::sway::SwayDetector;
+use super::r#trait::WindowDetectorTrait;
 
 #[derive(Debug, Clone)]
 enum DesktopEnvironment {
@@ -33,14 +33,13 @@ enum WorkingMethod {
     Sway,
 }
 
-pub struct WindowDetector {
+pub struct RealWindowDetector {
     config: Arc<Config>,
     key_repeater: Arc<KeyRepeater>,
     desktop_env: DesktopEnvironment,
     current_window: Arc<RwLock<Option<WindowInfo>>>,
     dbus_connection: Option<Connection>,
     working_method: Option<WorkingMethod>,
-    dry_run: bool,
 
     // Детекторы утилит
     kdotool: KdotoolDetector,
@@ -49,9 +48,9 @@ pub struct WindowDetector {
     sway: SwayDetector,
 }
 
-impl WindowDetector {
-    pub fn new(config: Arc<Config>, key_repeater: Arc<KeyRepeater>, dry_run: bool) -> Result<Self> {
-        info!("Инициализация WindowDetector (dry_run: {})", dry_run);
+impl RealWindowDetector {
+    pub fn new(config: Arc<Config>, key_repeater: Arc<KeyRepeater>) -> Result<Self> {
+        info!("Инициализация RealWindowDetector");
 
         let desktop_env = Self::detect_desktop_environment();
         info!("Обнаружена среда рабочего стола: {:?}", desktop_env);
@@ -63,7 +62,6 @@ impl WindowDetector {
             current_window: Arc::new(RwLock::new(None)),
             dbus_connection: None,
             working_method: None,
-            dry_run,
             kdotool: KdotoolDetector::new(),
             xdotool: XdotoolDetector::new(),
             wmctrl: WmctrlDetector::new(),
@@ -104,30 +102,25 @@ impl WindowDetector {
     }
 
     pub async fn run(mut self) -> Result<()> {
-        info!("WindowDetector запущен для среды: {:?}", self.desktop_env);
+        info!("RealWindowDetector запущен для среды: {:?}", self.desktop_env);
 
-        if self.dry_run {
-            let mut dry_run_detector = DryRunDetector::new(self.key_repeater.clone());
-            dry_run_detector.run().await
-        } else {
-            match self.config.window.detection_mode.as_str() {
-                "dbus" => {
-                    if let Err(e) = self.run_dbus_detection().await {
-                        warn!("D-Bus отслеживание не удалось: {}, переключаемся на polling", e);
-                        self.run_polling_detection().await?;
-                    }
-                }
-                "polling" => {
+        match self.config.window.detection_mode.as_str() {
+            "dbus" => {
+                if let Err(e) = self.run_dbus_detection().await {
+                    warn!("D-Bus отслеживание не удалось: {}, переключаемся на polling", e);
                     self.run_polling_detection().await?;
                 }
-                _ => {
-                    return Err(AhkError::Internal(
-                        format!("Неизвестный режим детекции: {}", self.config.window.detection_mode)
-                    ));
-                }
             }
-            Ok(())
+            "polling" => {
+                self.run_polling_detection().await?;
+            }
+            _ => {
+                return Err(AhkError::Internal(
+                    format!("Неизвестный режим детекции: {}", self.config.window.detection_mode)
+                ));
+            }
         }
+        Ok(())
     }
 
     async fn run_dbus_detection(&mut self) -> Result<()> {
@@ -311,8 +304,15 @@ impl WindowDetector {
     }
 }
 
-impl Drop for WindowDetector {
+impl Drop for RealWindowDetector {
     fn drop(&mut self) {
-        info!("WindowDetector завершает работу");
+        info!("RealWindowDetector завершает работу");
+    }
+}
+
+#[async_trait::async_trait]
+impl WindowDetectorTrait for RealWindowDetector {
+    async fn run(self: Box<Self>) -> Result<()> {
+        (*self).run().await
     }
 }

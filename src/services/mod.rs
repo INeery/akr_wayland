@@ -7,4 +7,4 @@ pub mod keycode_map;
 pub use key_repeater::KeyRepeater;
 pub use keyboard_listener::create_keyboard_listener;
 pub use virtual_device::VirtualDevice;
-pub use window_detector::WindowDetector;
+pub use window_detector::create_window_detector;
