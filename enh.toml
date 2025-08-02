@@ -1,0 +1,71 @@
+# Конфигурация AHK Rust
+[logging]
+level = "info"
+format = "pretty"  # pretty, json
+filter = "ahk_rust=info"
+
+[input]
+repeat_delay_ms = 150
+device_path = "auto"  # auto или путь к устройству
+
+[window]
+detection_mode = "dbus"
+polling_interval_ms = 1000
+window_title_patterns = ["World of Warcraft"]
+
+[performance]
+enable_metrics = false
+metrics_port = 9090
+channel_buffer_size = 1000
+
+[[mappings]]
+key = "1"
+modifiers = ["ctrl", "alt", "shift"]
+
+[[mappings]]
+key = "2"
+modifiers = ["ctrl", "alt", "shift"]
+
+[[mappings]]
+key = "3"
+modifiers = ["ctrl", "alt", "shift"]
+
+[[mappings]]
+key = "4"
+modifiers = ["ctrl", "alt", "shift"]
+
+[[mappings]]
+key = "5"
+modifiers = ["ctrl", "alt", "shift"]
+
+[[mappings]]
+key = "q"
+modifiers = ["ctrl", "alt", "shift"]
+
+[[mappings]]
+key = "e"
+modifiers = ["ctrl", "alt", "shift"]
+
+[[mappings]]
+key = "r"
+modifiers = ["ctrl", "alt", "shift"]
+
+[[mappings]]
+key = "t"
+modifiers = ["ctrl", "alt", "shift"]
+
+[[mappings]]
+key = "f"
+modifiers = ["ctrl", "alt", "shift"]
+
+[[mappings]]
+key = "g"
+modifiers = ["ctrl", "alt", "shift"]
+
+[[mappings]]
+key = "h"
+modifiers = ["ctrl", "alt", "shift"]
+
+[[mappings]]
+key = "x"
+modifiers = ["ctrl", "alt", "shift"]

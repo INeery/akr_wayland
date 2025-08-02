@@ -1,0 +1,58 @@
+[package]
+name = "ahk-rust"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <your.email@example.com>"]
+description = "Утилита для повторения нажатых клавиш при их удерживании с поддержкой фильтрации по активным окнам"
+license = "MIT"
+repository = "https://github.com/yourusername/ahk-rust"
+
+[dependencies]
+# Async runtime (оптимизированные features)
+tokio = { version = "1.0", features = ["rt-multi-thread", "time", "macros", "sync", "signal"] }
+
+# Современная работа с evdev
+evdev = "0.13.1"
+uinput = "0.1"
+
+# Продвинутая конфигурация
+clap = { version = "4.0", features = ["derive"] }
+figment = { version = "0.10", features = ["toml", "env"] }
+serde = { version = "1.0", features = ["derive"] }
+
+# D-Bus для реактивного отслеживания окон
+zbus = "5.9.0"
+
+# Эффективные структуры данных
+dashmap = "6.1.0"
+parking_lot = "0.12"
+
+# Современная обработка ошибок
+anyhow = "1.0"
+thiserror = "2.0.12"
+
+# Логирование (минимальный набор features)
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"], default-features = false }
+
+# Утилиты
+once_cell = "1.19"
+async-trait = "0.1"
+
+# Опционально для debug (оставляем для будущего использования)
+tokio-console = { version = "0.1", optional = true }
+
+[features]
+default = []
+console = ["tokio-console"]
+
+[profile.release]
+# Оптимизация размера
+lto = true               # Link Time Optimization
+codegen-units = 1        # Лучшая оптимизация, медленнее компиляция
+panic = "abort"          # Убираем код для unwinding
+strip = true             # Удаляем debug символы
+
+[profile.release-small]
+inherits = "release"
+opt-level = "z"          # Агрессивная оптимизация размера

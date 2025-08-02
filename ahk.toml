@@ -1,0 +1,42 @@
+# Конфигурация AHK Rust
+
+[logging]
+level = "info"
+format = "pretty"  # pretty, json
+filter = "ahk_rust=info"
+
+[input]
+repeat_delay_ms = 50
+device_path = "auto"  # auto или путь к устройству
+
+[window]
+detection_mode = "dbus"  # dbus, polling
+polling_interval_ms = 1000
+# Фильтры окон - если пустые, то работает для всех окон
+window_title_patterns = []
+
+[performance]
+enable_metrics = false
+metrics_port = 9090
+channel_buffer_size = 1000
+
+# Примеры маппингов клавиш для повторения
+[[mappings]]
+key = "j"
+modifiers = []
+
+[[mappings]]
+key = "k" 
+modifiers = []
+
+[[mappings]]
+key = "h"
+modifiers = []
+
+[[mappings]]
+key = "l"
+modifiers = []
+
+[[mappings]]
+key = "space"
+modifiers = ["ctrl"]
