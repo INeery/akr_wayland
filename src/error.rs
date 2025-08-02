@@ -8,8 +8,6 @@ pub enum AhkError {
     #[error("Ошибка ввода-вывода: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("Ошибка evdev: {0}")]
-    Evdev(#[from] evdev::Error),
 
     #[error("Ошибка uinput: {0}")]
     Uinput(#[from] uinput::Error),

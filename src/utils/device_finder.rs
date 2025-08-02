@@ -173,9 +173,9 @@ impl DeviceFinder {
                 // Проверяем, поддерживает ли устройство клавиатурные события
                 let has_keys = device.supported_keys().map_or(false, |keys| {
                     // Проверяем наличие основных клавиш для клавиатуры
-                    let basic_keys = keys.contains(evdev::Key::KEY_A) && 
-                                   keys.contains(evdev::Key::KEY_SPACE) &&
-                                   keys.contains(evdev::Key::KEY_ENTER);
+                    let basic_keys = keys.contains(evdev::KeyCode::KEY_A) &&
+                                   keys.contains(evdev::KeyCode::KEY_SPACE) &&
+                                   keys.contains(evdev::KeyCode::KEY_ENTER);
 
                     // Проверяем наличие достаточного количества клавиш (у клавиатуры их много)
                     let key_count = keys.iter().count();

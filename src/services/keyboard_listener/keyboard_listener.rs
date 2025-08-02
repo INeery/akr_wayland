@@ -3,7 +3,7 @@ use crate::error::{AhkError, Result};
 use crate::events::{KeyCode, KeyEvent, KeyState, VirtualKeyEvent};
 use crate::services::{KeyRepeater, VirtualDevice};
 use crate::utils::DeviceFinder;
-use evdev::{Device, InputEventKind};
+use evdev::{Device, EventType};
 use parking_lot::RwLock;
 use std::io::Error;
 use std::path::PathBuf;
@@ -87,7 +87,8 @@ impl RealKeyboardListener {
     }
 
     async fn handle_event(&mut self, event: evdev::InputEvent) -> Result<()> {
-        if let InputEventKind::Key(key) = event.kind() {
+        if event.event_type() == EventType::KEY {
+            let key_code = event.code();
             let key_state = match event.value() {
                 0 => KeyState::Released,
                 1 => KeyState::Pressed,
@@ -100,14 +101,14 @@ impl RealKeyboardListener {
 
             {
                 let mut modifier_state = self.modifier_state.write();
-                modifier_state.update_key(key, key_state == KeyState::Pressed);
+                modifier_state.update_key(key_code, key_state == KeyState::Pressed);
             }
 
             let modifiers = self.modifier_state.read().to_modifiers();
-            let key_name = KeyMapper::get_key_name(key);
+            let key_name = KeyMapper::get_key_name(key_code);
 
             let key_event = KeyEvent {
-                key_code: KeyCode(key.code()),
+                key_code: KeyCode(key_code),
                 state: key_state,
                 modifiers: modifiers.clone(),
                 timestamp: std::time::Instant::now(),

@@ -1,5 +1,5 @@
 use crate::events::Modifiers;
-use evdev::Key;
+use evdev::KeyCode;
 
 #[derive(Debug, Default)]
 pub struct ModifierState {
@@ -23,12 +23,13 @@ impl ModifierState {
         }
     }
 
-    pub fn update_key(&mut self, key: Key, pressed: bool) {
-        match key {
-            Key::KEY_LEFTCTRL | Key::KEY_RIGHTCTRL => self.ctrl = pressed,
-            Key::KEY_LEFTALT | Key::KEY_RIGHTALT => self.alt = pressed,
-            Key::KEY_LEFTSHIFT | Key::KEY_RIGHTSHIFT => self.shift = pressed,
-            Key::KEY_LEFTMETA | Key::KEY_RIGHTMETA => self.super_key = pressed,
+    pub fn update_key(&mut self, key_code: u16, pressed: bool) {
+        let keycode = KeyCode::new(key_code);
+        match keycode {
+            KeyCode::KEY_LEFTCTRL | KeyCode::KEY_RIGHTCTRL => self.ctrl = pressed,
+            KeyCode::KEY_LEFTALT | KeyCode::KEY_RIGHTALT => self.alt = pressed,
+            KeyCode::KEY_LEFTSHIFT | KeyCode::KEY_RIGHTSHIFT => self.shift = pressed,
+            KeyCode::KEY_LEFTMETA | KeyCode::KEY_RIGHTMETA => self.super_key = pressed,
             _ => {}
         }
     }
