@@ -50,7 +50,6 @@ The application is configured through a TOML file (default: `ahk.toml`). Configu
 - Logging settings
 - Input device configuration
 - Window detection settings
-- Performance tuning
 - Key mappings
 
 Example configuration:
@@ -69,11 +68,6 @@ device_path = "auto"  # auto or path to device
 detection_mode = "dbus"  # dbus, polling
 polling_interval_ms = 1000
 window_title_patterns = []  # Empty means all windows
-
-[performance]
-enable_metrics = false
-metrics_port = 9090
-channel_buffer_size = 1000
 
 # Key mappings
 [[mappings]]

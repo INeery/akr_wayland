@@ -2,18 +2,18 @@
 name = "ahk-rust"
 version = "0.1.0"
 edition = "2021"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["Neery <ineery@yandex.ru>"]
 description = "Утилита для повторения нажатых клавиш при их удерживании с поддержкой фильтрации по активным окнам"
 license = "MIT"
-repository = "https://github.com/yourusername/ahk-rust"
+repository = "https://github.com/INeery/akr_wayland"
 
 [dependencies]
 # Async runtime (оптимизированные features)
-tokio = { version = "1.0", features = ["rt-multi-thread", "time", "macros", "sync", "signal"] }
+tokio = { version = "1.47.1", features = ["rt-multi-thread", "time", "macros", "signal"] }
 
 # Современная работа с evdev
 evdev = "0.13.1"
-uinput = "0.1"
+uinput = "0.1.3"
 
 # Продвинутая конфигурация
 clap = { version = "4.0", features = ["derive"] }
@@ -26,7 +26,7 @@ zbus = "5.9.0"
 # Эффективные структуры данных
 dashmap = "6.1.0"
 parking_lot = "0.12"
-smallvec = "1.11"
+smallvec = "1.15.1"
 
 # Современная обработка ошибок
 anyhow = "1.0"
@@ -54,11 +54,3 @@ strip = true             # Удаляем debug символы
 [profile.release-small]
 inherits = "release"
 opt-level = "s"          # ✅ Оптимизация размера (было "z")
-
-# ✅ Новый профиль для максимальной производительности
-[profile.performance]
-inherits = "release"
-opt-level = 3
-lto = "fat"
-codegen-units = 1
-panic = "abort"
