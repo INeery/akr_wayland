@@ -1,6 +1,8 @@
 use crate::config::Config;
+use crate::debug_if_enabled;
 use crate::error::{AhkError, Result};
 use crate::events::{KeyCode, KeyEvent, KeyState, VirtualKeyEvent};
+use crate::events::keyboard::device_ids;
 use crate::services::{KeyRepeater, VirtualDevice};
 use crate::utils::DeviceFinder;
 use evdev::{Device, EventType};
@@ -8,7 +10,7 @@ use parking_lot::RwLock;
 use std::io::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use super::key_mapping::KeyMapper;
 use super::modifier_state::ModifierState;
@@ -20,6 +22,8 @@ pub struct RealKeyboardListener {
     device: Device,
     virtual_device: VirtualDevice,
     modifier_state: Arc<RwLock<ModifierState>>,
+    device_id: u8,  // ✅ Кэшированный ID устройства
+    event_buffer: Vec<evdev::InputEvent>,  // ✅ Переиспользуемый буфер
 }
 
 impl RealKeyboardListener {
@@ -53,6 +57,8 @@ impl RealKeyboardListener {
             device,
             virtual_device,
             modifier_state: Arc::new(RwLock::new(ModifierState::new())),
+            device_id: device_ids::LISTENER_VIRTUAL_KEYBOARD,  // ✅ Кэшированный ID устройства
+            event_buffer: Vec::with_capacity(64),  // ✅ Предаллоцированный буфер
         })
     }
 
@@ -65,24 +71,36 @@ impl RealKeyboardListener {
         );
 
         loop {
-            // Обработка событий клавиатуры (неблокирующая)
-            let events_vec = match self.device.fetch_events() {
-                Ok(events) => events.collect::<Vec<_>>(),
-                Err(e) => {
-                    error!("Ошибка чтения событий: {}", e);
-                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                    continue;
+            // ✅ Без аллокации Vec - используем переиспользуемый буфер
+            // Собираем события в отдельном scope для освобождения borrow
+            let has_events = {
+                match self.device.fetch_events() {
+                    Ok(events) => {
+                        self.event_buffer.clear();
+                        self.event_buffer.extend(events);
+                        !self.event_buffer.is_empty()
+                    }
+                    Err(e) => {
+                        error!("Ошибка чтения событий: {}", e);
+                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                        continue;
+                    }
                 }
-            };
+            }; // borrow от fetch_events() освобожден здесь
 
-            for event in events_vec {
-                if let Err(e) = self.handle_event(event).await {
-                    error!("Ошибка обработки события: {}", e);
+            // Теперь обрабатываем события из буфера
+            if has_events {
+                let event_count = self.event_buffer.len();
+                for i in 0..event_count {
+                    let event = self.event_buffer[i];
+                    if let Err(e) = self.handle_event(event).await {
+                        error!("Ошибка обработки события: {}", e);
+                    }
                 }
             }
 
-            // Небольшая задержка для предотвращения 100% загрузки CPU
-            tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
+            // ✅ Более эффективная задержка - 50μs вместо 1ms
+            tokio::time::sleep(tokio::time::Duration::from_micros(50)).await;
         }
     }
 
@@ -94,7 +112,7 @@ impl RealKeyboardListener {
                 1 => KeyState::Pressed,
                 2 => KeyState::Repeat,
                 _ => {
-                    debug!("Неизвестное значение события: {}", event.value());
+                    debug_if_enabled!("Неизвестное значение события: {}", event.value());
                     return Ok(());
                 }
             };
@@ -110,26 +128,26 @@ impl RealKeyboardListener {
             let key_event = KeyEvent {
                 key_code: KeyCode(key_code),
                 state: key_state,
-                modifiers: modifiers.clone(),
+                modifiers,  // ✅ Без clone - Copy type
                 timestamp: std::time::Instant::now(),
-                device_name: self.device.name().unwrap_or("Unknown").to_string(),
+                device_id: self.device_id,  // ✅ Используем кэшированный device_id
             };
 
-            debug!("Событие клавиши: {}", key_event);
+            debug_if_enabled!("Событие клавиши: {}", key_event);
 
             // Вызываем KeyRepeater напрямую для принятия решения
-            debug!(
+            debug_if_enabled!(
                 "Вызываем KeyRepeater напрямую для обработки клавиши {}",
                 key_name.as_deref().unwrap_or("Unknown")
             );
 
-            if let Err(e) = self.key_repeater.handle_key_event(key_event.clone()).await {
+            if let Err(e) = self.key_repeater.handle_key_event(&key_event).await {
                 error!("Ошибка при обработке события в KeyRepeater: {}", e);
                 // Если произошла ошибка в KeyRepeater, пробрасываем как обычное событие
                 self.passthrough_event(&key_event).await?;
             }
         } else {
-            debug!("Проброс не-клавиатурного события: {:?}", event);
+            debug_if_enabled!("Проброс не-клавиатурного события: {:?}", event);
         }
 
         Ok(())
@@ -138,20 +156,20 @@ impl RealKeyboardListener {
     async fn passthrough_event(&mut self, key_event: &KeyEvent) -> Result<()> {
         let virtual_event = match key_event.state {
             KeyState::Pressed => {
-                VirtualKeyEvent::press(key_event.key_code, key_event.modifiers.clone())
+                VirtualKeyEvent::press(key_event.key_code, key_event.modifiers)  // ✅ Без clone - Copy type
             }
             KeyState::Released => {
-                VirtualKeyEvent::release(key_event.key_code, key_event.modifiers.clone())
+                VirtualKeyEvent::release(key_event.key_code, key_event.modifiers)  // ✅ Без clone - Copy type
             }
             KeyState::Repeat => VirtualKeyEvent::new(
                 key_event.key_code,
                 KeyState::Repeat,
-                key_event.modifiers.clone(),
+                key_event.modifiers,  // ✅ Без clone - Copy type
             ),
         };
 
         if let Err(e) = self.virtual_device.send_event(virtual_event) {
-            debug!(
+            debug_if_enabled!(
                 "Не удалось пробросить событие для клавиши {}: {}",
                 key_event.key_code.value(),
                 e

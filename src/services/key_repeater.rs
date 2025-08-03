@@ -1,18 +1,18 @@
 use crate::config::Config;
+use crate::debug_if_enabled;
 use crate::error::Result;
 use crate::events::{KeyEvent, WindowEvent, VirtualKeyEvent, KeyState, KeyCode, Modifiers, WindowInfo};
 use crate::services::{keycode_map::KeycodeMap, VirtualDevice};
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, Duration};
-use tracing::{info, error, debug, warn};
+use tracing::{info, error};
 use parking_lot::RwLock;
 use dashmap::DashMap;
 
 pub struct KeyRepeater {
     config: Arc<Config>,
-    virtual_device: Arc<Mutex<VirtualDevice>>,
+    virtual_device: Arc<VirtualDevice>,  // ✅ Используем Arc для безопасного разделения
     dry_run: bool,
     // Состояние компонента
     active_window: Arc<RwLock<Option<WindowInfo>>>,
@@ -34,7 +34,7 @@ impl KeyRepeater {
     ) -> Result<Self> {
         info!("Инициализация KeyRepeater (dry_run: {})", dry_run);
 
-        let virtual_device = Arc::new(Mutex::new(VirtualDevice::new("AHK-Rust KeyRepeater Virtual Device", dry_run)?));
+        let virtual_device = Arc::new(VirtualDevice::new("AHK-Rust KeyRepeater Virtual Device", dry_run)?);  // ✅ Оборачиваем в Arc
 
         Ok(Self {
             config,
@@ -47,8 +47,8 @@ impl KeyRepeater {
 
 
     /// Обработка события клавиши
-    pub async fn handle_key_event(&self, event: KeyEvent) -> Result<()> {
-        debug!("Обработка события клавиши: {}", event);
+    pub async fn handle_key_event(&self, event: &KeyEvent) -> Result<()> {
+        debug_if_enabled!("Обработка события клавиши: {}", event);
 
         // Проверяем, нужно ли повторять эту клавишу
         let should_repeat = if let Some(key_name) = KeycodeMap::get_key_name(event.key_code.value()) {
@@ -58,12 +58,13 @@ impl KeyRepeater {
                 .map(|w| w.title.as_str())
                 .unwrap_or("");
 
-            debug!("KeyRepeater проверяет повторение для клавиши '{}' с заголовком окна: '{}'", key_name, window_title);
-            debug!("Паттерны окон в конфигурации: {:?}", self.config.window.window_title_patterns);
-            debug!("Модификаторы события: {:?}", event.modifiers.to_vec());
+            debug_if_enabled!("KeyRepeater проверяет повторение для клавиши '{}' с заголовком окна: '{}'", key_name, window_title);
+            debug_if_enabled!("Паттерны окон в конфигурации: {:?}", self.config.window.window_title_patterns);
+            debug_if_enabled!("Модификаторы события: {:?}", event.modifiers.to_vec());
 
-            let result = self.config.should_repeat_key(key_name, &event.modifiers.to_vec(), window_title);
-            debug!("Результат проверки повторения для '{}': {}", key_name, result);
+            // ✅ Используем оптимизированный метод без аллокаций
+            let result = self.config.should_repeat_key_optimized(key_name, event.modifiers, window_title);
+            debug_if_enabled!("Результат проверки повторения для '{}': {}", key_name, result);
 
             result
         } else {
@@ -81,12 +82,12 @@ impl KeyRepeater {
                 }
                 KeyState::Repeat => {
                     // Игнорируем аппаратные повторы - мы делаем свои
-                    debug!("Игнорируем аппаратный повтор для {}", event.key_code);
+                    debug_if_enabled!("Игнорируем аппаратный повтор для {}", event.key_code);
                 }
             }
         } else {
             // Пробрасываем обычное событие
-            debug!("Клавиша {} не нуждается в повторении - пробрасываем", 
+            debug_if_enabled!("Клавиша {} не нуждается в повторении - пробрасываем", 
                    KeycodeMap::get_key_name(event.key_code.value()).unwrap_or("Unknown"));
 
             let virtual_event = match event.state {
@@ -96,7 +97,7 @@ impl KeyRepeater {
             };
 
 
-            if let Err(e) = self.virtual_device.lock().await.send_event(virtual_event) {
+            if let Err(e) = self.virtual_device.send_event(virtual_event) {
                 error!("Не удалось пробросить обычное событие: {}", e);
             }
         }
@@ -105,20 +106,20 @@ impl KeyRepeater {
     }
 
     /// Обработка нажатия клавиши
-    async fn handle_key_press(&self, event: KeyEvent) -> Result<()> {
+    async fn handle_key_press(&self, event: &KeyEvent) -> Result<()> {
         let combination_id = event.combination_id();
         
         info!("Получено нажатие клавиши для повторения: {}", combination_id);
         
         // СНАЧАЛА отправляем оригинальное событие нажатия
-        let original_press_event = VirtualKeyEvent::press(event.key_code, event.modifiers.clone());
-        if let Err(e) = self.virtual_device.lock().await.send_event(original_press_event) {
+        let original_press_event = VirtualKeyEvent::press(event.key_code, event.modifiers);  // ✅ Без clone - Copy type
+        if let Err(e) = self.virtual_device.send_event(original_press_event) {
             error!("Не удалось отправить оригинальное событие нажатия: {}", e);
         }
 
         // Если уже есть активный повторитель для этой комбинации, останавливаем его
         if self.active_repeaters.contains_key(&combination_id) {
-            debug!("Останавливаем существующий повторитель для {}", combination_id);
+            debug_if_enabled!("Останавливаем существующий повторитель для {}", combination_id);
             self.stop_repeater(&combination_id).await;
         }
 
@@ -130,7 +131,7 @@ impl KeyRepeater {
     }
 
     /// Обработка отпускания клавиши
-    async fn handle_key_release(&self, event: KeyEvent) -> Result<()> {
+    async fn handle_key_release(&self, event: &KeyEvent) -> Result<()> {
         let combination_id = event.combination_id();
         
         info!("Получено отпускание клавиши: {}", combination_id);
@@ -142,8 +143,8 @@ impl KeyRepeater {
         }
         
         // Отправляем оригинальное событие отпускания
-        let original_release_event = VirtualKeyEvent::release(event.key_code, event.modifiers.clone());
-        if let Err(e) = self.virtual_device.lock().await.send_event(original_release_event) {
+        let original_release_event = VirtualKeyEvent::release(event.key_code, event.modifiers);  // ✅ Без clone - Copy type
+        if let Err(e) = self.virtual_device.send_event(original_release_event) {
             error!("Не удалось отправить оригинальное событие отпускания: {}", e);
         }
 
@@ -152,7 +153,7 @@ impl KeyRepeater {
 
     /// Обработка события окна
     pub async fn handle_window_event(&self, event: WindowEvent) -> Result<()> {
-        debug!("Обработка события окна: {}", event);
+        debug_if_enabled!("Обработка события окна: {}", event);
         
         // Обновляем активное окно
         {
@@ -171,17 +172,17 @@ impl KeyRepeater {
 
 
     /// Запустить повторитель для комбинации клавиш
-    async fn start_repeater(&self, event: KeyEvent) {
+    async fn start_repeater(&self, event: &KeyEvent) {
         let combination_id = event.combination_id();
-        let virtual_device = self.virtual_device.clone();
-        let config = self.config.clone();
+        let virtual_device = Arc::clone(&self.virtual_device);  // ✅ Используем Arc::clone
+        let config = Arc::clone(&self.config);  // ✅ Используем Arc::clone
         let key_code = event.key_code;
-        let modifiers = event.modifiers.clone();
+        let modifiers = event.modifiers;  // ✅ Без clone - Copy type
         let dry_run = self.dry_run;
 
         // Клонируем данные для использования в задаче и в структуре
         let combination_id_for_task = combination_id.clone();
-        let modifiers_for_task = modifiers.clone();
+        let modifiers_for_task = modifiers;  // ✅ Без clone - Copy type
 
         // Создаем задачу повторения
         let handle = tokio::spawn(async move {
@@ -209,7 +210,7 @@ impl KeyRepeater {
     async fn stop_repeater(&self, combination_id: &str) {
         if let Some((_, task)) = self.active_repeaters.remove(combination_id) {
             task.handle.abort();
-            debug!("Повторитель {} остановлен", combination_id);
+            debug_if_enabled!("Повторитель {} остановлен", combination_id);
         }
     }
 
@@ -247,15 +248,15 @@ impl KeyRepeater {
                 .map(|entry| {
                     let combination_id = entry.key().clone();
                     let task = entry.value();
-                    (combination_id, task.key_code, task.modifiers.clone())
+                    (combination_id, task.key_code, task.modifiers)  // ✅ Без clone - Copy type
                 })
                 .collect();
 
             // Отправляем release события для всех активных повторителей
             for (combination_id, key_code, modifiers) in &repeater_info {
-                debug!("Отправка финального release события для {}", combination_id);
-                let release_event = VirtualKeyEvent::release(*key_code, modifiers.clone());
-                if let Err(e) = self.virtual_device.lock().await.send_event(release_event) {
+                debug_if_enabled!("Отправка финального release события для {}", combination_id);
+                let release_event = VirtualKeyEvent::release(*key_code, *modifiers);  // ✅ Без clone - Copy type
+                if let Err(e) = self.virtual_device.send_event(release_event) {
                     error!("Не удалось отправить финальное событие отпускания для {}: {}", combination_id, e);
                 }
             }
@@ -279,13 +280,13 @@ impl KeyRepeater {
         combination_id: String,
         key_code: KeyCode,
         modifiers: Modifiers,
-        virtual_device: Arc<Mutex<VirtualDevice>>,
+        virtual_device: Arc<VirtualDevice>,  // ✅ Используем Arc<VirtualDevice>
         config: Arc<Config>,
         dry_run: bool,
     ) {
         let repeat_delay = Duration::from_millis(config.input.repeat_delay_ms);
 
-        debug!(
+        debug_if_enabled!(
             "Запуск задачи повторения: {}, интервал: {}мс",
             combination_id,
             config.input.repeat_delay_ms
@@ -302,26 +303,26 @@ impl KeyRepeater {
                 );
             } else {
                 // Отправляем нажатие
-                let press_event = VirtualKeyEvent::press(key_code, modifiers.clone());
-                if let Err(e) = virtual_device.lock().await.send_event(press_event) {
+                let press_event = VirtualKeyEvent::press(key_code, modifiers);  // ✅ Без clone - Copy type
+                if let Err(e) = virtual_device.send_event(press_event) {
                     error!("Ошибка отправки события нажатия: {}", e);
                     break;
                 }
 
                 // Отправляем отпускание сразу (без задержки для лучшей производительности)
-                let release_event = VirtualKeyEvent::release(key_code, modifiers.clone());
-                if let Err(e) = virtual_device.lock().await.send_event(release_event) {
+                let release_event = VirtualKeyEvent::release(key_code, modifiers);  // ✅ Без clone - Copy type
+                if let Err(e) = virtual_device.send_event(release_event) {
                     error!("Ошибка отправки события отпускания: {}", e);
                     break;
                 }
 
-                debug!("Повтор #{} для {} отправлен", repeat_count, combination_id);
+                debug_if_enabled!("Повтор #{} для {} отправлен", repeat_count, combination_id);
             }
 
             // Ждем до следующего повтора
             sleep(repeat_delay).await;
         }
 
-        debug!("Задача повторения для {} завершена после {} повторов", combination_id, repeat_count);
+        debug_if_enabled!("Задача повторения для {} завершена после {} повторов", combination_id, repeat_count);
     }
 }

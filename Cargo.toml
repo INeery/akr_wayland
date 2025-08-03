@@ -26,12 +26,13 @@ zbus = "5.9.0"
 # Эффективные структуры данных
 dashmap = "6.1.0"
 parking_lot = "0.12"
+smallvec = "1.11"
 
 # Современная обработка ошибок
 anyhow = "1.0"
 thiserror = "2.0.12"
 
-# Логирование (минимальный набор features)
+# Логирование (оптимизированные features)
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"], default-features = false }
 
@@ -39,20 +40,25 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"], defaul
 once_cell = "1.19"
 async-trait = "0.1"
 
-# Опционально для debug (оставляем для будущего использования)
-tokio-console = { version = "0.1", optional = true }
-
 [features]
 default = []
-console = ["tokio-console"]
 
 [profile.release]
-# Оптимизация размера
-lto = true               # Link Time Optimization
-codegen-units = 1        # Лучшая оптимизация, медленнее компиляция
-panic = "abort"          # Убираем код для unwinding
+# ✅ Максимальная оптимизация скорости
+opt-level = 3            # Максимальная оптимизация скорости
+lto = "fat"              # Агрессивная link-time оптимизация
+codegen-units = 1        # Лучшая оптимизация
+panic = "abort"          # Убираем unwinding
 strip = true             # Удаляем debug символы
 
 [profile.release-small]
 inherits = "release"
-opt-level = "z"          # Агрессивная оптимизация размера
+opt-level = "s"          # ✅ Оптимизация размера (было "z")
+
+# ✅ Новый профиль для максимальной производительности
+[profile.performance]
+inherits = "release"
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"

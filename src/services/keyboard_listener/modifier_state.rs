@@ -15,12 +15,11 @@ impl ModifierState {
     }
 
     pub fn to_modifiers(&self) -> Modifiers {
-        Modifiers {
-            ctrl: self.ctrl,
-            alt: self.alt,
-            shift: self.shift,
-            super_key: self.super_key,
-        }
+        Modifiers::new()
+            .with_ctrl(self.ctrl)
+            .with_alt(self.alt)
+            .with_shift(self.shift)
+            .with_super(self.super_key)
     }
 
     pub fn update_key(&mut self, key_code: u16, pressed: bool) {

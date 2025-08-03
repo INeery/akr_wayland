@@ -186,6 +186,28 @@ impl Config {
         false
     }
 
+    /// ✅ Оптимизированная версия без аллокаций Vec<String>
+    pub fn should_repeat_key_optimized(&self, key: &str, modifiers: crate::events::Modifiers, window_title: &str) -> bool {
+        // Проверяем есть ли клавиша в маппингах
+        let has_key_mapping = self.mappings.iter().any(|mapping| mapping.key == key);
+        
+        if !has_key_mapping {
+            return false;
+        }
+
+        // Проверяем паттерны окон
+        if self.window.window_title_patterns.is_empty() {
+            return true;
+        }
+
+        // Проверяем совпадение с паттернами окон (нечувствительно к регистру)
+        let window_title_lower = window_title.to_lowercase();
+        self.window.window_title_patterns.iter().any(|pattern| {
+            let pattern_lower = pattern.to_lowercase();
+            window_title_lower.contains(&pattern_lower)
+        })
+    }
+
     /// Получить все клавиши из маппингов
     pub fn get_all_keys(&self) -> std::collections::HashSet<String> {
         let mut keys = std::collections::HashSet::new();
