@@ -4,15 +4,22 @@ use figment::{
     Figment,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::Path;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
     pub logging: LoggingConfig,
     pub input: InputConfig,
+    pub repeat: RepeatConfig,
     pub window: WindowConfig,
     #[serde(default)]
     pub mappings: Vec<KeyMapping>,
+    // Оптимизационные индексы - не сериализуются, строятся после загрузки
+    #[serde(skip)]
+    key_set: HashSet<String>, // O(1) lookup для ключей
+    #[serde(skip)]
+    pattern_set_lower: HashSet<String>, // Предварительно нормализованные паттерны
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -24,8 +31,14 @@ pub struct LoggingConfig {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct InputConfig {
-    pub repeat_delay_ms: u64,
     pub device_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RepeatConfig {
+    pub repeat_delay_ms: u64,
+    #[serde(default, rename = "repeat_toggle_key")]
+    pub repeat_toggle_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -38,7 +51,7 @@ pub struct WindowConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct KeyMapping {
     pub key: String,
-    pub modifiers: Vec<String>
+    pub modifiers: Vec<String>,
 }
 
 impl Config {
@@ -49,15 +62,18 @@ impl Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self {
+        let mut config = Self {
             logging: LoggingConfig {
                 level: "info".to_string(),
                 format: "pretty".to_string(),
                 filter: "ahk_rust=info".to_string(),
             },
             input: InputConfig {
-                repeat_delay_ms: 50,
                 device_path: "auto".to_string(),
+            },
+            repeat: RepeatConfig {
+                repeat_delay_ms: 50,
+                repeat_toggle_key: None,
             },
             window: WindowConfig {
                 detection_mode: "dbus".to_string(),
@@ -65,7 +81,11 @@ impl Default for Config {
                 window_title_patterns: Vec::new(),
             },
             mappings: Vec::new(),
-        }
+            key_set: HashSet::new(),
+            pattern_set_lower: HashSet::new(),
+        };
+        config.build_optimization_indexes();
+        config
     }
 }
 
@@ -77,13 +97,32 @@ impl Config {
             .merge(Toml::file(config_path))
             .merge(Env::prefixed("AHK_"));
 
-        let config: Config = figment
+        let mut config: Config = figment
             .extract()
             .with_context(|| format!("Не удалось загрузить конфигурацию из {:?}", config_path))?;
 
         config.validate()?;
+        config.build_optimization_indexes();
 
         Ok(config)
+    }
+
+    /// Строит оптимизационные индексы для быстрого поиска
+    pub fn build_optimization_indexes(&mut self) {
+        // Строим HashSet для O(1) поиска ключей
+        self.key_set = self
+            .mappings
+            .iter()
+            .map(|mapping| mapping.key.clone())
+            .collect();
+
+        // Предварительно нормализуем паттерны окон
+        self.pattern_set_lower = self
+            .window
+            .window_title_patterns
+            .iter()
+            .map(|pattern| pattern.to_lowercase())
+            .collect();
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -98,15 +137,18 @@ impl Config {
             _ => anyhow::bail!("Неверный формат логирования: {}", self.logging.format),
         }
 
-        // Валидация настроек ввода
-        if self.input.repeat_delay_ms == 0 {
+        // Валидация настроек повторения
+        if self.repeat.repeat_delay_ms == 0 {
             anyhow::bail!("repeat_delay_ms должно быть больше 0");
         }
 
         // Валидация настроек окон
         match self.window.detection_mode.as_str() {
             "dbus" | "polling" => {}
-            _ => anyhow::bail!("Неверный режим детекции окон: {}", self.window.detection_mode),
+            _ => anyhow::bail!(
+                "Неверный режим детекции окон: {}",
+                self.window.detection_mode
+            ),
         }
 
         if self.window.polling_interval_ms < 100 {
@@ -130,18 +172,39 @@ impl Config {
         Ok(())
     }
 
-    /// Проверить, должна ли клавиша повторяться для данного окна
+    /// ЕДИНСТВЕННЫЙ метод проверки повторения - объединяет логику модификаторов с оптимизацией производительности
     pub fn should_repeat_key(&self, key: &str, modifiers: &[String], window_title: &str) -> bool {
+        // Быстрая проверка: если клавиши нет в маппингах, сразу возвращаем false (O(1))
+        if !self.key_set.contains(key) {
+            return false;
+        }
+
+        // Оптимизация для случаев без модификаторов - используем предварительно нормализованные паттерны
+        if modifiers.is_empty() {
+            // Если паттерны пустые, повторяем для всех окон
+            if self.pattern_set_lower.is_empty() {
+                return true;
+            }
+
+            // Одна аллокация + предварительно нормализованные паттерны
+            let window_title_lower = window_title.to_lowercase();
+            return self
+                .pattern_set_lower
+                .iter()
+                .any(|pattern| window_title_lower.contains(pattern));
+        }
+
+        // Для случаев с модификаторами используем полную логику (O(n) но неизбежно)
         for mapping in self.mappings() {
             if mapping.key == key {
                 // Логика: клавиша работает БЕЗ модификаторов + с любыми указанными модификаторами
                 // mapping.modifiers = ["ctrl", "alt"] означает работает:
                 // - просто клавиша
-                // - ctrl + клавиша  
+                // - ctrl + клавиша
                 // - alt + клавиша
                 // - ctrl + alt + клавиша
                 // Но НЕ работает shift + клавиша (shift не в списке)
-                
+
                 let modifiers_match = if mapping.modifiers.is_empty() {
                     // Если модификаторы не указаны, работает только без модификаторов
                     modifiers.is_empty()
@@ -151,21 +214,19 @@ impl Config {
                     // 2. С модификаторами - только если все нажатые модификаторы есть в разрешённом списке
                     modifiers.is_empty() || modifiers.iter().all(|m| mapping.modifiers.contains(m))
                 };
-                
+
                 if modifiers_match {
                     // Если паттерны окон пустые, работаем для всех окон
                     if self.window.window_title_patterns.is_empty() {
                         return true;
                     }
 
-                    // Проверяем совпадение с паттернами окон (нечувствительно к регистру)
+                    // Используем предварительно нормализованные паттерны
                     let window_title_lower = window_title.to_lowercase();
-                    for pattern in &self.window.window_title_patterns {
-                        let pattern_lower = pattern.to_lowercase();
-                        if window_title_lower.contains(&pattern_lower) {
-                            return true;
-                        }
-                    }
+                    return self
+                        .pattern_set_lower
+                        .iter()
+                        .any(|pattern| window_title_lower.contains(pattern));
                 }
             }
         }
@@ -173,39 +234,18 @@ impl Config {
         false
     }
 
-    /// ✅ Оптимизированная версия без аллокаций Vec<String>
-    pub fn should_repeat_key_optimized(&self, key: &str, window_title: &str) -> bool {
-        // Проверяем есть ли клавиша в маппингах
-        let has_key_mapping = self.mappings.iter().any(|mapping| mapping.key == key);
-        
-        if !has_key_mapping {
-            return false;
-        }
-
-        // Проверяем паттерны окон
-        if self.window.window_title_patterns.is_empty() {
-            return true;
-        }
-
-        // Проверяем совпадение с паттернами окон (нечувствительно к регистру)
-        let window_title_lower = window_title.to_lowercase();
-        self.window.window_title_patterns.iter().any(|pattern| {
-            let pattern_lower = pattern.to_lowercase();
-            window_title_lower.contains(&pattern_lower)
-        })
-    }
-
     /// Получить все клавиши из маппингов
-    pub fn get_all_keys(&self) -> std::collections::HashSet<String> {
-        let mut keys = std::collections::HashSet::new();
-        
+    #[allow(dead_code)]
+    pub fn get_all_keys(&self) -> HashSet<String> {
+        let mut keys = HashSet::new();
+
         for mapping in &self.mappings {
             keys.insert(mapping.key.clone());
             for modifier in &mapping.modifiers {
                 keys.insert(modifier.clone());
             }
         }
-        
+
         keys
     }
 }
@@ -227,14 +267,17 @@ mod tests {
         config.mappings = vec![
             KeyMapping {
                 key: "j".to_string(),
-                modifiers: vec![]
+                modifiers: vec![],
             },
             KeyMapping {
                 key: "space".to_string(),
-                modifiers: vec!["ctrl".to_string()]
-            }
+                modifiers: vec!["ctrl".to_string()],
+            },
         ];
         config.window.window_title_patterns = vec!["nvim".to_string()];
+
+        // Перестраиваем оптимизационные индексы после изменения конфигурации
+        config.build_optimization_indexes();
 
         // Должно повторяться для vim
         assert!(config.should_repeat_key("j", &[], "nvim - file.txt"));
@@ -254,7 +297,7 @@ mod tests {
             KeyMapping {
                 key: "k".to_string(),
                 modifiers: vec!["shift".to_string()],
-            }
+            },
         ];
         config.window.window_title_patterns = vec!["nvim".to_string()];
 

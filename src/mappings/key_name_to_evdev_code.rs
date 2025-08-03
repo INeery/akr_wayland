@@ -66,6 +66,20 @@ impl KeyNameToEvdevCode {
             "left" => 105,       // KEY_LEFT
             "right" => 106,      // KEY_RIGHT
 
+            // Функциональные клавиши
+            "f1" => 59,          // KEY_F1
+            "f2" => 60,          // KEY_F2
+            "f3" => 61,          // KEY_F3
+            "f4" => 62,          // KEY_F4
+            "f5" => 63,          // KEY_F5
+            "f6" => 64,          // KEY_F6
+            "f7" => 65,          // KEY_F7
+            "f8" => 66,          // KEY_F8
+            "f9" => 67,          // KEY_F9
+            "f10" => 68,         // KEY_F10
+            "f11" => 87,         // KEY_F11
+            "f12" => 88,         // KEY_F12
+
             _ => return Err(format!("Unknown key: {}", key_name)),
         };
 
@@ -134,6 +148,20 @@ impl KeyNameToEvdevCode {
             105 => Some("left"),      // KEY_LEFT
             106 => Some("right"),     // KEY_RIGHT
 
+            // Функциональные клавиши
+            59 => Some("f1"),         // KEY_F1
+            60 => Some("f2"),         // KEY_F2
+            61 => Some("f3"),         // KEY_F3
+            62 => Some("f4"),         // KEY_F4
+            63 => Some("f5"),         // KEY_F5
+            64 => Some("f6"),         // KEY_F6
+            65 => Some("f7"),         // KEY_F7
+            66 => Some("f8"),         // KEY_F8
+            67 => Some("f9"),         // KEY_F9
+            68 => Some("f10"),        // KEY_F10
+            87 => Some("f11"),        // KEY_F11
+            88 => Some("f12"),        // KEY_F12
+
             _ => None,
         }
     }
@@ -179,5 +207,13 @@ mod tests {
         assert!(KeyNameToEvdevCode::is_modifier("SHIFT"));
         assert!(!KeyNameToEvdevCode::is_modifier("a"));
         assert!(!KeyNameToEvdevCode::is_modifier("space"));
+    }
+
+    #[test]
+    fn test_function_keys() {
+        assert_eq!(KeyNameToEvdevCode::translate("f1").unwrap(), 59);
+        assert_eq!(KeyNameToEvdevCode::translate("F12").unwrap(), 88);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(59), Some("f1"));
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(88), Some("f12"));
     }
 }

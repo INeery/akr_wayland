@@ -6,8 +6,10 @@ format = "pretty"  # pretty, json
 filter = "ahk_rust=info"
 
 [input]
-repeat_delay_ms = 50
 device_path = "auto"  # auto или путь к устройству
+
+[repeat]
+repeat_delay_ms = 50
 
 [window]
 detection_mode = "dbus"  # dbus, polling

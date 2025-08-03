@@ -15,9 +15,6 @@ pub enum AhkError {
     #[error("Ошибка D-Bus: {0}")]
     DBus(#[from] zbus::Error),
 
-    #[error("Ошибка канала: {0}")]
-    Channel(String),
-
     #[error("Устройство не найдено: {0}")]
     DeviceNotFound(String),
 
@@ -32,24 +29,8 @@ pub enum AhkError {
 }
 
 impl AhkError {
-    pub fn channel<T>(msg: impl Into<String>) -> Result<T> {
-        Err(AhkError::Channel(msg.into()))
-    }
-
     pub fn device_not_found<T>(msg: impl Into<String>) -> Result<T> {
         Err(AhkError::DeviceNotFound(msg.into()))
-    }
-
-    pub fn permission<T>(msg: impl Into<String>) -> Result<T> {
-        Err(AhkError::Permission(msg.into()))
-    }
-
-    pub fn service_unavailable<T>(msg: impl Into<String>) -> Result<T> {
-        Err(AhkError::ServiceUnavailable(msg.into()))
-    }
-
-    pub fn internal<T>(msg: impl Into<String>) -> Result<T> {
-        Err(AhkError::Internal(msg.into()))
     }
 }
 
@@ -79,22 +60,4 @@ macro_rules! ahk_error {
     (internal, $($arg:tt)*) => {
         $crate::error::AhkError::Internal(format!($($arg)*))
     };
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_error_creation() {
-        let err = AhkError::channel::<()>("Тестовая ошибка канала");
-        assert!(err.is_err());
-        assert!(err.unwrap_err().to_string().contains("Тестовая ошибка канала"));
-    }
-
-    #[test]
-    fn test_error_macro() {
-        let err = ahk_error!(internal, "Код ошибки: {}", 42);
-        assert_eq!(err.to_string(), "Внутренняя ошибка: Код ошибки: 42");
-    }
 }

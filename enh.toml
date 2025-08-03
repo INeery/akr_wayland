@@ -5,8 +5,11 @@ format = "pretty"  # pretty, json
 filter = "ahk_rust=info"
 
 [input]
-repeat_delay_ms = 30
 device_path = "auto"  # auto или путь к устройству
+
+[repeat]
+repeat_delay_ms = 30
+repeat_toggle_key = "f12"
 
 [window]
 detection_mode = "dbus"

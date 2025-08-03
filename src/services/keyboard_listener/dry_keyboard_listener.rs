@@ -1,6 +1,5 @@
 use crate::config::Config;
 use crate::error::Result;
-use crate::services::KeyRepeater;
 use std::sync::Arc;
 use tracing::{debug, info};
 
@@ -8,15 +7,13 @@ use super::r#trait::KeyboardListenerTrait;
 
 pub struct DryRunKeyboardListener {
     config: Arc<Config>,
-    key_repeater: Arc<KeyRepeater>,
 }
 
 impl DryRunKeyboardListener {
-    pub fn new(config: Arc<Config>, key_repeater: Arc<KeyRepeater>) -> Result<Self> {
+    pub fn new(config: Arc<Config>) -> Result<Self> {
         info!("Инициализация DryRunKeyboardListener");
         Ok(Self {
             config,
-            key_repeater,
         })
     }
 

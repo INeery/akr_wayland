@@ -6,7 +6,7 @@ use std::sync::Arc;
 mod config;
 mod error;
 mod events;
-mod mappings;
+pub mod mappings;
 mod services;
 mod utils;
 

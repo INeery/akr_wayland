@@ -98,18 +98,22 @@ impl Modifiers {
     }
 
     // Геттеры для совместимости
+    #[allow(dead_code)]
     pub fn ctrl(&self) -> bool {
         self.bits & Self::CTRL != 0
     }
 
+    #[allow(dead_code)]
     pub fn alt(&self) -> bool {
         self.bits & Self::ALT != 0
     }
 
+    #[allow(dead_code)]
     pub fn shift(&self) -> bool {
         self.bits & Self::SHIFT != 0
     }
 
+    #[allow(dead_code)]
     pub fn super_key(&self) -> bool {
         self.bits & Self::SUPER != 0
     }
@@ -132,6 +136,7 @@ impl Modifiers {
     }
 
     // Оптимизированная версия без аллокаций
+    #[allow(dead_code)]
     pub fn to_string_vec(&self) -> SmallVec<[&'static str; 4]> {
         let mut result = SmallVec::new();
         if self.bits & Self::CTRL != 0 {
@@ -185,8 +190,7 @@ impl fmt::Display for Modifiers {
 pub mod device_ids {
     pub const LISTENER_VIRTUAL_KEYBOARD: u8 = 0;
     pub const REPEATER_VIRTUAL_KEYBOARD: u8 = 1;
-    pub const UNKNOWN: u8 = 2;
-
+    
     pub fn name(device_id: u8) -> &'static str {
         match device_id {
             LISTENER_VIRTUAL_KEYBOARD => "Listener Virtual Keyboard",
@@ -233,10 +237,18 @@ impl KeyEvent {
     }
 
     /// Кэшированный combination_id через hash (без аллокаций)
+    #[allow(dead_code)]
     pub fn combination_hash(&self) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         self.key_code.value().hash(&mut hasher);
         self.modifiers.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// Хеш только по основной клавише (для устойчивости к race conditions с модификаторами)
+    pub fn key_only_hash(&self) -> u64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.key_code.value().hash(&mut hasher);
         hasher.finish()
     }
 }
@@ -297,5 +309,28 @@ mod tests {
 
         assert_eq!(event1.combination_id(), "42");
         assert_eq!(event2.combination_id(), "ctrl+42");
+    }
+
+    #[test]
+    fn test_combination_hash_same_for_press_release() {
+        let press_event = KeyEvent::new(
+            KeyCode::new(42),
+            KeyState::Pressed,
+            Modifiers::new().with_ctrl(true),
+            0,
+        );
+
+        let release_event = KeyEvent::new(
+            KeyCode::new(42),
+            KeyState::Released,
+            Modifiers::new().with_ctrl(true),
+            0,
+        );
+
+        // Press и Release события должны иметь одинаковый hash
+        assert_eq!(press_event.combination_hash(), release_event.combination_hash());
+        
+        // Но разные combination_id из-за разного состояния? Нет, combination_id не включает state
+        assert_eq!(press_event.combination_id(), release_event.combination_id());
     }
 }

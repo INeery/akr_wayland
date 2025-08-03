@@ -1,29 +1,31 @@
 use crate::config::Config;
 use crate::debug_if_enabled;
 use crate::error::{AhkError, Result};
-use crate::events::{KeyCode, KeyEvent, KeyState, VirtualKeyEvent};
 use crate::events::keyboard::device_ids;
+use crate::events::{KeyCode, KeyEvent, KeyState, VirtualKeyEvent};
 use crate::services::{KeyRepeater, VirtualDevice};
 use crate::utils::DeviceFinder;
 use evdev::{Device, EventType};
 use parking_lot::RwLock;
 use std::io::Error;
+use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::io::unix::AsyncFd;
 use tracing::{error, info, warn};
 
-use super::key_mapping::KeyMapper;
 use super::modifier_state::ModifierState;
 use super::r#trait::KeyboardListenerTrait;
+use crate::mappings::evdev_to_key_name::EvdevToKeyName;
 
 pub struct RealKeyboardListener {
+    device: Device,
+    async_device: AsyncFd<i32>, // AsyncFd wrapper for event-driven I/O
     config: Arc<Config>,
     key_repeater: Arc<KeyRepeater>,
-    device: Device,
     virtual_device: VirtualDevice,
     modifier_state: Arc<RwLock<ModifierState>>,
-    device_id: u8,  // ✅ Кэшированный ID устройства
-    event_buffer: Vec<evdev::InputEvent>,  // ✅ Переиспользуемый буфер
+    device_id: u8,
 }
 
 impl RealKeyboardListener {
@@ -51,60 +53,69 @@ impl RealKeyboardListener {
             }
         }
 
+        // Создаем AsyncFd wrapper для event-driven I/O
+        let fd = device.as_raw_fd();
+        let async_device = AsyncFd::new(fd)?;
+
         Ok(Self {
+            device,
+            async_device,
             config,
             key_repeater,
-            device,
             virtual_device,
             modifier_state: Arc::new(RwLock::new(ModifierState::new())),
-            device_id: device_ids::LISTENER_VIRTUAL_KEYBOARD,  // ✅ Кэшированный ID устройства
-            event_buffer: Vec::with_capacity(64),  // ✅ Предаллоцированный буфер
+            device_id: device_ids::LISTENER_VIRTUAL_KEYBOARD,
         })
     }
 
     async fn run_impl(mut self) -> Result<()> {
-        info!("RealKeyboardListener запущен, начинаем чтение событий");
-
+        info!("KeyboardListener запущен, начинаем чтение событий");
         info!(
             "Настроено {} маппингов для повторения",
             self.config.mappings.len()
         );
+        info!("✅ Используем event-driven архитектуру (без polling)");
 
         loop {
-            // ✅ Без аллокации Vec - используем переиспользуемый буфер
-            // Собираем события в отдельном scope для освобождения borrow
-            let has_events = {
-                match self.device.fetch_events() {
-                    Ok(events) => {
-                        self.event_buffer.clear();
-                        self.event_buffer.extend(events);
-                        !self.event_buffer.is_empty()
-                    }
-                    Err(e) => {
-                        error!("Ошибка чтения событий: {}", e);
-                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                        continue;
+            // Event-driven approach: ждем готовности файлового дескriptора
+            // Это использует epoll под капотом - никаких задержек!
+            match self.async_device.readable().await {
+                Ok(mut guard) => {
+                    // ✅ Читаем все доступные события
+                    let events: Vec<evdev::InputEvent> = {
+                        match self.device.fetch_events() {
+                            Ok(events) => events.collect(),
+                            Err(e) => {
+                                error!("Ошибка чтения событий: {}", e);
+                                // При ошибке чтения небольшая пауза
+                                tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+                                continue;
+                            }
+                        }
+                    };
+                    
+                    // Сообщаем AsyncFd что мы обработали данные и освобождаем guard
+                    guard.clear_ready();
+                    drop(guard); // Явно освобождаем borrow
+                    
+                    // Теперь обрабатываем события без конфликта borrow
+                    for event in events {
+                        if let Err(e) = self.process_key_event(event).await {
+                            error!("Ошибка обработки события: {}", e);
+                        }
                     }
                 }
-            }; // borrow от fetch_events() освобожден здесь
-
-            // Теперь обрабатываем события из буфера
-            if has_events {
-                let event_count = self.event_buffer.len();
-                for i in 0..event_count {
-                    let event = self.event_buffer[i];
-                    if let Err(e) = self.handle_event(event).await {
-                        error!("Ошибка обработки события: {}", e);
-                    }
+                Err(e) => {
+                    error!("Ошибка ожидания готовности устройства: {}", e);
+                    // При ошибке AsyncFd небольшая пауза перед повтором
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                 }
             }
-
-            // ✅ Более эффективная задержка - 50μs вместо 1ms
-            tokio::time::sleep(tokio::time::Duration::from_micros(50)).await;
         }
     }
 
-    async fn handle_event(&mut self, event: evdev::InputEvent) -> Result<()> {
+    /// Обработать событие клавиатуры 
+    pub async fn process_key_event(&mut self, event: evdev::InputEvent) -> Result<()> {
         if event.event_type() == EventType::KEY {
             let key_code = event.code();
             let key_state = match event.value() {
@@ -123,14 +134,14 @@ impl RealKeyboardListener {
             }
 
             let modifiers = self.modifier_state.read().to_modifiers();
-            let key_name = KeyMapper::get_key_name(key_code);
+            let key_name = EvdevToKeyName::translate(key_code).map(|s| s.to_string());
 
             let key_event = KeyEvent {
                 key_code: KeyCode(key_code),
                 state: key_state,
-                modifiers,  // ✅ Без clone - Copy type
+                modifiers,
                 timestamp: std::time::Instant::now(),
-                device_id: self.device_id,  // ✅ Используем кэшированный device_id
+                device_id: self.device_id,
             };
 
             debug_if_enabled!("Событие клавиши: {}", key_event);
@@ -155,17 +166,11 @@ impl RealKeyboardListener {
 
     async fn passthrough_event(&mut self, key_event: &KeyEvent) -> Result<()> {
         let virtual_event = match key_event.state {
-            KeyState::Pressed => {
-                VirtualKeyEvent::press(key_event.key_code, key_event.modifiers)  // ✅ Без clone - Copy type
+            KeyState::Pressed => VirtualKeyEvent::press(key_event.key_code, key_event.modifiers),
+            KeyState::Released => VirtualKeyEvent::release(key_event.key_code, key_event.modifiers),
+            KeyState::Repeat => {
+                VirtualKeyEvent::new(key_event.key_code, KeyState::Repeat, key_event.modifiers)
             }
-            KeyState::Released => {
-                VirtualKeyEvent::release(key_event.key_code, key_event.modifiers)  // ✅ Без clone - Copy type
-            }
-            KeyState::Repeat => VirtualKeyEvent::new(
-                key_event.key_code,
-                KeyState::Repeat,
-                key_event.modifiers,  // ✅ Без clone - Copy type
-            ),
         };
 
         if let Err(e) = self.virtual_device.send_event(virtual_event) {

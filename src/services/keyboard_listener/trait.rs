@@ -19,7 +19,6 @@ pub fn create_keyboard_listener(
     if dry_run {
         Ok(Box::new(super::dry_keyboard_listener::DryRunKeyboardListener::new(
             config,
-            key_repeater,
         )?))
     } else {
         Ok(Box::new(super::keyboard_listener::RealKeyboardListener::new(

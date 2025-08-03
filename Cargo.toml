@@ -9,7 +9,7 @@ repository = "https://github.com/INeery/akr_wayland"
 
 [dependencies]
 # Async runtime (оптимизированные features)
-tokio = { version = "1.47.1", features = ["rt-multi-thread", "time", "macros", "signal"] }
+tokio = { version = "1.47.1", features = ["rt-multi-thread", "time", "macros", "signal", "net"] }
 
 # Современная работа с evdev
 evdev = "0.13.1"
