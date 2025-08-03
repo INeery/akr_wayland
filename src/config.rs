@@ -11,7 +11,6 @@ pub struct Config {
     pub logging: LoggingConfig,
     pub input: InputConfig,
     pub window: WindowConfig,
-    pub performance: PerformanceConfig,
     #[serde(default)]
     pub mappings: Vec<KeyMapping>,
 }
@@ -34,13 +33,6 @@ pub struct WindowConfig {
     pub detection_mode: String,
     pub polling_interval_ms: u64,
     pub window_title_patterns: Vec<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct PerformanceConfig {
-    pub enable_metrics: bool,
-    pub metrics_port: u16,
-    pub channel_buffer_size: usize,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -71,11 +63,6 @@ impl Default for Config {
                 detection_mode: "dbus".to_string(),
                 polling_interval_ms: 1000,
                 window_title_patterns: Vec::new(),
-            },
-            performance: PerformanceConfig {
-                enable_metrics: false,
-                metrics_port: 9090,
-                channel_buffer_size: 1000,
             },
             mappings: Vec::new(),
         }
@@ -187,7 +174,7 @@ impl Config {
     }
 
     /// ✅ Оптимизированная версия без аллокаций Vec<String>
-    pub fn should_repeat_key_optimized(&self, key: &str, modifiers: crate::events::Modifiers, window_title: &str) -> bool {
+    pub fn should_repeat_key_optimized(&self, key: &str, window_title: &str) -> bool {
         // Проверяем есть ли клавиша в маппингах
         let has_key_mapping = self.mappings.iter().any(|mapping| mapping.key == key);
         

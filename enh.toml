@@ -5,18 +5,13 @@ format = "pretty"  # pretty, json
 filter = "ahk_rust=info"
 
 [input]
-repeat_delay_ms = 150
+repeat_delay_ms = 30
 device_path = "auto"  # auto или путь к устройству
 
 [window]
 detection_mode = "dbus"
 polling_interval_ms = 1000
 window_title_patterns = ["World of Warcraft"]
-
-[performance]
-enable_metrics = false
-metrics_port = 9090
-channel_buffer_size = 1000
 
 [[mappings]]
 key = "1"

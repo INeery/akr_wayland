@@ -16,7 +16,7 @@ pub struct KeyRepeater {
     dry_run: bool,
     // Состояние компонента
     active_window: Arc<RwLock<Option<WindowInfo>>>,
-    active_repeaters: Arc<DashMap<String, RepeaterTask>>,
+    active_repeaters: Arc<DashMap<u64, RepeaterTask>>,
 }
 
 /// Задача повторения для конкретной комбинации клавиш
@@ -63,7 +63,7 @@ impl KeyRepeater {
             debug_if_enabled!("Модификаторы события: {:?}", event.modifiers.to_vec());
 
             // ✅ Используем оптимизированный метод без аллокаций
-            let result = self.config.should_repeat_key_optimized(key_name, event.modifiers, window_title);
+            let result = self.config.should_repeat_key_optimized(key_name, window_title);
             debug_if_enabled!("Результат проверки повторения для '{}': {}", key_name, result);
 
             result
@@ -108,6 +108,7 @@ impl KeyRepeater {
     /// Обработка нажатия клавиши
     async fn handle_key_press(&self, event: &KeyEvent) -> Result<()> {
         let combination_id = event.combination_id();
+        let combination_hash = event.combination_hash();
         
         info!("Получено нажатие клавиши для повторения: {}", combination_id);
         
@@ -117,13 +118,13 @@ impl KeyRepeater {
             error!("Не удалось отправить оригинальное событие нажатия: {}", e);
         }
 
-        // Если уже есть активный повторитель для этой комбинации, останавливаем его
-        if self.active_repeaters.contains_key(&combination_id) {
-            debug_if_enabled!("Останавливаем существующий повторитель для {}", combination_id);
-            self.stop_repeater(&combination_id).await;
+        // Если уже есть активный повторитель для этой комбинации, не пересоздаем его
+        if self.active_repeaters.contains_key(&combination_hash) {
+            debug_if_enabled!("Повторитель для {} уже активен, пропускаем создание", combination_id);
+            return Ok(());
         }
 
-        // Запускаем новый повторитель
+        // Запускаем новый повторитель только если его еще нет
         info!("Запуск повторения для комбинации: {}", combination_id);
         self.start_repeater(event).await;
 
@@ -133,13 +134,14 @@ impl KeyRepeater {
     /// Обработка отпускания клавиши
     async fn handle_key_release(&self, event: &KeyEvent) -> Result<()> {
         let combination_id = event.combination_id();
+        let combination_hash = event.combination_hash();
         
         info!("Получено отпускание клавиши: {}", combination_id);
         
         // Останавливаем повторитель если он активен
-        if self.active_repeaters.contains_key(&combination_id) {
+        if self.active_repeaters.contains_key(&combination_hash) {
             info!("Остановка повторения для комбинации: {}", combination_id);
-            self.stop_repeater(&combination_id).await;
+            self.stop_repeater(combination_hash).await;
         }
         
         // Отправляем оригинальное событие отпускания
@@ -174,6 +176,7 @@ impl KeyRepeater {
     /// Запустить повторитель для комбинации клавиш
     async fn start_repeater(&self, event: &KeyEvent) {
         let combination_id = event.combination_id();
+        let combination_hash = event.combination_hash();
         let virtual_device = Arc::clone(&self.virtual_device);  // ✅ Используем Arc::clone
         let config = Arc::clone(&self.config);  // ✅ Используем Arc::clone
         let key_code = event.key_code;
@@ -203,14 +206,14 @@ impl KeyRepeater {
             modifiers,
         };
 
-        self.active_repeaters.insert(combination_id, task);
+        self.active_repeaters.insert(combination_hash, task);
     }
 
     /// Остановить повторитель для конкретной комбинации
-    async fn stop_repeater(&self, combination_id: &str) {
-        if let Some((_, task)) = self.active_repeaters.remove(combination_id) {
+    async fn stop_repeater(&self, combination_hash: u64) {
+        if let Some((_, task)) = self.active_repeaters.remove(&combination_hash) {
             task.handle.abort();
-            debug_if_enabled!("Повторитель {} остановлен", combination_id);
+            debug_if_enabled!("Повторитель с хешем {} остановлен", combination_hash);
         }
     }
 
@@ -221,9 +224,9 @@ impl KeyRepeater {
             info!("Остановка {} активных повторителей", count);
 
             // Собираем все ключи
-            let keys: Vec<String> = self.active_repeaters
+            let keys: Vec<u64> = self.active_repeaters
                 .iter()
-                .map(|entry| entry.key().clone())
+                .map(|entry| *entry.key())
                 .collect();
 
             // Удаляем и останавливаем каждый повторитель
@@ -243,17 +246,23 @@ impl KeyRepeater {
             info!("Корректная остановка {} активных повторителей с отправкой release событий", count);
 
             // Собираем информацию о всех активных повторителях
-            let repeater_info: Vec<(String, KeyCode, Modifiers)> = self.active_repeaters
+            let repeater_info: Vec<(u64, KeyCode, Modifiers)> = self.active_repeaters
                 .iter()
                 .map(|entry| {
-                    let combination_id = entry.key().clone();
+                    let combination_hash = *entry.key();
                     let task = entry.value();
-                    (combination_id, task.key_code, task.modifiers)  // ✅ Без clone - Copy type
+                    (combination_hash, task.key_code, task.modifiers)  // ✅ Без clone - Copy type
                 })
                 .collect();
 
             // Отправляем release события для всех активных повторителей
-            for (combination_id, key_code, modifiers) in &repeater_info {
+            for (_combination_hash, key_code, modifiers) in &repeater_info {
+                // Создаем combination_id для логирования
+                let combination_id = if modifiers.is_empty() {
+                    format!("{}", key_code.value())
+                } else {
+                    format!("{}+{}", modifiers, key_code.value())
+                };
                 debug_if_enabled!("Отправка финального release события для {}", combination_id);
                 let release_event = VirtualKeyEvent::release(*key_code, *modifiers);  // ✅ Без clone - Copy type
                 if let Err(e) = self.virtual_device.send_event(release_event) {
@@ -262,9 +271,9 @@ impl KeyRepeater {
             }
 
             // Теперь останавливаем все повторители
-            let keys: Vec<String> = self.active_repeaters
+            let keys: Vec<u64> = self.active_repeaters
                 .iter()
-                .map(|entry| entry.key().clone())
+                .map(|entry| *entry.key())
                 .collect();
 
             for key in keys {

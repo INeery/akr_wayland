@@ -15,11 +15,6 @@ polling_interval_ms = 1000
 # Фильтры окон - если пустые, то работает для всех окон
 window_title_patterns = []
 
-[performance]
-enable_metrics = false
-metrics_port = 9090
-channel_buffer_size = 1000
-
 # Примеры маппингов клавиш для повторения
 [[mappings]]
 key = "j"
