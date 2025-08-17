@@ -19,8 +19,18 @@ pub struct KeyRepeater {
     virtual_device: Arc<VirtualDevice>,
     dry_run: bool,
     active_repeaters: Arc<DashMap<u64, RepeaterTask>>,
+    // Per-combination decision cache (key + modifiers + window/patterns): true -> should repeat
+    decision_cache: DashMap<CacheKey, bool>,
     window_ctx: Arc<dyn crate::services::window_context::WindowContext>,
     repetition_enabled: Arc<AtomicBool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct CacheKey {
+    key_name_hash: u64,
+    modifiers_bits: u8,
+    title_hash: u64,
+    patterns_hash: u64,
 }
 
 impl KeyRepeater {
@@ -36,6 +46,7 @@ impl KeyRepeater {
             virtual_device,
             dry_run,
             active_repeaters: Arc::new(DashMap::new()),
+            decision_cache: DashMap::new(),
             window_ctx: ctx,
             repetition_enabled: Arc::new(AtomicBool::new(true)), // По умолчанию повторы включены
         })
@@ -43,28 +54,47 @@ impl KeyRepeater {
 
     /// Оптимизированная проверка повторения с кэшированием
     fn should_repeat_cached(&self, key_name: &str, modifiers: &[String]) -> bool {
-        // Проверяем кэш без блокировок (хеши заголовка и паттернов)
-        let current_window_hash = self.window_ctx.get_title_hash();
-        let patterns_hash = self.window_ctx.get_patterns_hash();
+        // Сформируем структурированный ключ без аллокаций
+        let key_name_hash = {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = DefaultHasher::new();
+            key_name.hash(&mut hasher);
+            hasher.finish()
+        };
+        let modifiers_bits = Self::modifiers_to_bits(modifiers);
+        let cache_key = CacheKey {
+            key_name_hash,
+            modifiers_bits,
+            title_hash: self.window_ctx.get_title_hash(),
+            patterns_hash: self.window_ctx.get_patterns_hash(),
+        };
 
-        // Включаем модификаторы в ключ кэша для корректности
-        let modifiers_str = modifiers.join(",");
-        let cache_key = format!(
-            "{}:{}:{}:{}",
-            key_name, modifiers_str, current_window_hash, patterns_hash
-        );
-
-        if let Some(result) = self.window_ctx.get_cached_decision(&cache_key) {
-            return result;
+        if let Some(result) = self.decision_cache.get(&cache_key) {
+            return *result;
         }
 
         // Fallback к полной проверке и обновление кэша
-        let window_title = self.window_ctx.get_title_lower();
+        let window_title_arc = self.window_ctx.get_title_lower();
         let result = self
             .config
-            .should_repeat_key(key_name, modifiers, &window_title);
-        self.window_ctx.put_cached_decision(cache_key, result);
+            .should_repeat_key(key_name, modifiers, &window_title_arc);
+        self.decision_cache.insert(cache_key, result);
         result
+    }
+
+    fn modifiers_to_bits(modifiers: &[String]) -> u8 {
+        let mut bits: u8 = 0;
+        for m in modifiers {
+            match m.as_str() {
+                "ctrl" => bits |= 0b0001,
+                "alt" => bits |= 0b0010,
+                "shift" => bits |= 0b0100,
+                "super" => bits |= 0b1000,
+                _ => {}
+            }
+        }
+        bits
     }
 
     /// Обработка события клавиши.
@@ -565,4 +595,27 @@ mod tests {
         // Повторитель ДОЛЖЕН остановиться благодаря key_only_hash!
         assert_eq!(key_repeater.active_repeaters.len(), 0, "Повторитель остановился - исправление работает!");
     }
+
+    #[tokio::test]
+    async fn test_decision_cache_invalidation_on_title_change() {
+        // Config: repeat 'j' in windows containing 'nvim'
+        let mut cfg = Config::default();
+        cfg.mappings = vec![crate::config::KeyMapping { key: "j".into(), modifiers: vec![] }];
+        cfg.window.window_title_patterns = vec!["nvim".into()];
+        cfg.build_optimization_indexes();
+        let cfg = Arc::new(cfg);
+        let vd = Arc::new(crate::services::VirtualDevice::new("TestVD", true).unwrap());
+        let repeater = KeyRepeater::new(cfg, vd, true).unwrap();
+
+        // Initial title: browser (no match) -> false
+        repeater.window_ctx.update_title("browser");
+        let res1 = repeater.should_repeat_cached("j", &[]);
+        assert_eq!(res1, false);
+
+        // Change title to NVIM -> should become true; cache key differs due to title_hash
+        repeater.window_ctx.update_title("NVIM - file");
+        let res2 = repeater.should_repeat_cached("j", &[]);
+        assert_eq!(res2, true);
+    }
+
 }
