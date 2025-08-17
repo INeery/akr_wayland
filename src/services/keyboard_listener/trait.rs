@@ -14,6 +14,7 @@ pub trait KeyboardListenerTrait {
 pub fn create_keyboard_listener(
     config: Arc<Config>,
     key_repeater: Arc<KeyRepeater>,
+    virtual_device: Arc<crate::services::VirtualDevice>,
     dry_run: bool,
 ) -> Result<Box<dyn KeyboardListenerTrait + Send>> {
     if dry_run {
@@ -24,6 +25,7 @@ pub fn create_keyboard_listener(
         Ok(Box::new(super::keyboard_listener::RealKeyboardListener::new(
             config,
             key_repeater,
+            virtual_device,
         )?))
     }
 }

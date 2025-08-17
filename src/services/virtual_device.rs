@@ -95,6 +95,38 @@ impl VirtualDevice {
 
         Ok(())
     }
+
+    /// Отправляет release для всех возможных keycodes, чтобы гарантированно снять любые залипшие клавиши.
+    pub fn release_all_keys(&self) -> Result<()> {
+        if self.dry_run {
+            info!("[DRY RUN] release_all_keys вызван");
+            return Ok(());
+        }
+        if let Some(device_mutex) = &self.device {
+            let mut device = device_mutex.lock();
+            // Диапазон кодов клавиш в Linux input обычно 1..=255 для KEY_* (без 0)
+            for code in 1..=255i32 {
+                // EV_KEY = 1, value 0 = release
+                if let Err(e) = device.write(1, code, 0) {
+                    return Err(AhkError::Internal(format!(
+                        "Не удалось отправить release для keycode {}: {}",
+                        code, e
+                    )));
+                }
+            }
+            // EV_SYN
+            if let Err(e) = device.write(0, 0, 0) {
+                return Err(AhkError::Internal(format!(
+                    "Не удалось синхронизировать после release_all_keys: {}",
+                    e
+                )));
+            }
+            info!("Отправлен батч release для всех клавиш (1..=255)");
+            Ok(())
+        } else {
+            Err(AhkError::Internal("Виртуальное устройство недоступно".into()))
+        }
+    }
 }
 
 impl Drop for VirtualDevice {

@@ -23,16 +23,14 @@ pub struct RealKeyboardListener {
     async_device: AsyncFd<i32>, // AsyncFd wrapper for event-driven I/O
     config: Arc<Config>,
     key_repeater: Arc<KeyRepeater>,
-    virtual_device: VirtualDevice,
+    virtual_device: Arc<VirtualDevice>,
     modifier_state: Arc<RwLock<ModifierState>>,
     device_id: u8,
 }
 
 impl RealKeyboardListener {
-    pub fn new(config: Arc<Config>, key_repeater: Arc<KeyRepeater>) -> Result<Self> {
+    pub fn new(config: Arc<Config>, key_repeater: Arc<KeyRepeater>, virtual_device: Arc<VirtualDevice>) -> Result<Self> {
         info!("Инициализация RealKeyboardListener");
-
-        let virtual_device = VirtualDevice::new("AHK-Rust KeyboardListener Virtual Device", false)?;
 
         let device_path = DeviceFinder::find_keyboard_device(&config.input.device_path)?;
 
@@ -42,6 +40,9 @@ impl RealKeyboardListener {
                 device_path, e
             ))
         })?;
+
+        // Дождаться idle состояния перед захватом устройства, чтобы не разрезать нажатие между девайсами
+        Self::wait_until_idle(&device);
 
         match device.grab() {
             Ok(_) => Self::log_grabbed_device(&mut device),
@@ -66,6 +67,25 @@ impl RealKeyboardListener {
             modifier_state: Arc::new(RwLock::new(ModifierState::new())),
             device_id: device_ids::LISTENER_VIRTUAL_KEYBOARD,
         })
+    }
+
+    fn wait_until_idle(device: &Device) {
+        use std::{thread, time::Duration};
+        let mut stable_ok = 0;
+        // Требуем 2 последовательные проверки без нажатых клавиш
+        while stable_ok < 2 {
+            let any_pressed = match device.get_key_state() {
+                Ok(state) => state.iter().next().is_some(),
+                Err(_) => false, // при ошибке считаем, что нет нажатий, чтобы не зависнуть
+            };
+            if any_pressed {
+                stable_ok = 0;
+            } else {
+                stable_ok += 1;
+            }
+            thread::sleep(Duration::from_millis(30));
+        }
+        info!("Клавиатура в состоянии idle, выполняем grab()");
     }
 
     async fn run_impl(mut self) -> Result<()> {

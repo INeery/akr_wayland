@@ -32,10 +32,6 @@ struct Args {
     /// Уровень логирования
     #[arg(long, default_value = "info")]
     log_level: String,
-
-    /// Включить метрики Prometheus
-    #[arg(long)]
-    enable_metrics: bool,
 }
 
 #[tokio::main]
@@ -58,26 +54,25 @@ async fn main() -> Result<()> {
     // Проверка прав доступа
     utils::permissions::check_permissions()?;
 
-    // Инициализация компонентов (KeyRepeater создается первым для передачи в другие сервисы)
-    let key_repeater = Arc::new(KeyRepeater::new(config.clone(), args.dry_run)?);
-    let keyboard_listener = create_keyboard_listener(config.clone(), key_repeater.clone(), args.dry_run)?;
+    // Инициализация компонентов (создаём единое виртуальное устройство и передаём всем сервисам)
+    let virtual_device = Arc::new(services::VirtualDevice::new("AHK-Rust Virtual Device", args.dry_run)?);
+    let key_repeater = Arc::new(KeyRepeater::new(config.clone(), virtual_device.clone(), args.dry_run)?);
+    let keyboard_listener = create_keyboard_listener(config.clone(), key_repeater.clone(), virtual_device.clone(), args.dry_run)?;
     let window_detector = create_window_detector(config.clone(), key_repeater.clone(), args.dry_run)?;
 
     info!("Все компоненты инициализированы");
 
     // Запуск всех сервисов параллельно
-    let handles = vec![
-        tokio::spawn(async move {
-            if let Err(e) = keyboard_listener.run().await {
-                error!("Ошибка в KeyboardListener: {}", e);
-            }
-        }),
-        tokio::spawn(async move {
-            if let Err(e) = window_detector.run().await {
-                error!("Ошибка в WindowDetector: {}", e);
-            }
-        }),
-    ];
+    let keyboard_handle = tokio::spawn(async move {
+        if let Err(e) = keyboard_listener.run().await {
+            error!("Ошибка в KeyboardListener: {}", e);
+        }
+    });
+    let window_handle = tokio::spawn(async move {
+        if let Err(e) = window_detector.run().await {
+            error!("Ошибка в WindowDetector: {}", e);
+        }
+    });
 
     info!("Все сервисы запущены");
 
@@ -96,12 +91,20 @@ async fn main() -> Result<()> {
     // Корректная остановка KeyRepeater с отправкой финальных release событий
     key_repeater.stop_all_repeaters_gracefully().await;
 
-    // Ожидание завершения всех задач (с таймаутом)
+    // Дополнительно гарантируем отсутствие залипших клавиш: релизим все
+    if let Err(e) = virtual_device.release_all_keys() {
+        warn!("Не удалось выполнить release_all_keys: {}", e);
+    }
+
+    // Прерываем задачи, чтобы гарантированно освободить grab в Drop
+    keyboard_handle.abort();
+    window_handle.abort();
+
+    // Ожидаем завершения задач (с таймаутом)
     let shutdown_timeout = tokio::time::Duration::from_secs(5);
     let shutdown_result = tokio::time::timeout(shutdown_timeout, async {
-        for handle in handles {
-            let _ = handle.await;
-        }
+        let _ = keyboard_handle.await;
+        let _ = window_handle.await;
     }).await;
 
     match shutdown_result {

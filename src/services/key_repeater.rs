@@ -28,13 +28,8 @@ pub struct KeyRepeater {
 }
 
 impl KeyRepeater {
-    pub fn new(config: Arc<Config>, dry_run: bool) -> Result<Self> {
+    pub fn new(config: Arc<Config>, virtual_device: Arc<VirtualDevice>, dry_run: bool) -> Result<Self> {
         info!("Инициализация KeyRepeater (dry_run: {})", dry_run);
-
-        let virtual_device = Arc::new(VirtualDevice::new(
-            "AHK-Rust KeyRepeater Virtual Device",
-            dry_run,
-        )?); // ✅ Оборачиваем в Arc
 
         let window_cache = Arc::new(WindowCache::new());
         // Инициализируем patterns_hash при создании
@@ -210,7 +205,7 @@ impl KeyRepeater {
         }
 
         // Запускаем новый повторитель только если его еще нет
-        info!("Запуск повторения для комбинации: {}", combination_id);
+        debug_if_enabled!("Запуск повторения для комбинации: {}", combination_id);
         self.start_repeater(event).await;
 
         Ok(())
@@ -221,11 +216,11 @@ impl KeyRepeater {
         let combination_id = event.combination_id();
         let key_hash = event.key_only_hash(); // ✅ ИСПРАВЛЕНИЕ: Используем key_only_hash для устойчивости к race conditions
 
-        info!("Получено отпускание клавиши: {}", combination_id);
+        debug_if_enabled!("Получено отпускание клавиши: {}", combination_id);
 
         // Останавливаем повторитель если он активен
         if self.active_repeaters.contains_key(&key_hash) {
-            info!("Остановка повторения для комбинации: {}", combination_id);
+            debug_if_enabled!("Остановка повторения для комбинации: {}", combination_id);
             self.stop_repeater(key_hash).await;
         }
 
@@ -466,7 +461,8 @@ mod tests {
     async fn test_stop_all_repeaters_gracefully_aborts_tasks() {
         // Создаем тестовый конфиг
         let config = Arc::new(Config::default());
-        let key_repeater = KeyRepeater::new(config, true).unwrap(); // dry_run = true
+        let vd = Arc::new(crate::services::VirtualDevice::new("TestVD", true).unwrap());
+        let key_repeater = KeyRepeater::new(config, vd, true).unwrap(); // dry_run = true
 
         // Создаем тестовое событие клавиши
         let key_event = KeyEvent::new(
@@ -509,7 +505,8 @@ mod tests {
     #[tokio::test]
     async fn test_stop_all_repeaters_gracefully_with_empty_map() {
         let config = Arc::new(Config::default());
-        let key_repeater = KeyRepeater::new(config, true).unwrap();
+        let vd = Arc::new(crate::services::VirtualDevice::new("TestVD", true).unwrap());
+        let key_repeater = KeyRepeater::new(config, vd, true).unwrap();
 
         // Проверяем, что метод корректно работает с пустым HashMap
         key_repeater.stop_all_repeaters_gracefully().await;
@@ -534,7 +531,8 @@ mod tests {
         let config = Arc::new(config);
 
         // Создаем KeyRepeater в dry_run режиме
-        let repeater = KeyRepeater::new(config.clone(), true).unwrap();
+        let vd = Arc::new(crate::services::VirtualDevice::new("TestVD", true).unwrap());
+        let repeater = KeyRepeater::new(config.clone(), vd, true).unwrap();
 
         // Проверяем, что повторы изначально включены
         assert!(repeater.repetition_enabled.load(Ordering::Relaxed));
@@ -578,7 +576,8 @@ mod tests {
     #[tokio::test]
     async fn test_modifier_race_condition_fixed() {
         let config = Arc::new(Config::default());
-        let key_repeater = KeyRepeater::new(config, true).unwrap();
+        let vd = Arc::new(crate::services::VirtualDevice::new("TestVD", true).unwrap());
+        let key_repeater = KeyRepeater::new(config, vd, true).unwrap();
 
         // Создаем press событие с модификатором
         let press_event = KeyEvent::new(
