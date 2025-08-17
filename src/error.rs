@@ -35,29 +35,3 @@ impl AhkError {
 }
 
 pub type Result<T> = std::result::Result<T, AhkError>;
-
-// Удобные макросы для создания ошибок
-#[macro_export]
-macro_rules! ahk_error {
-    (channel, $($arg:tt)*) => {
-        $crate::error::AhkError::Channel(format!($($arg)*))
-    };
-    (device_not_found, $($arg:tt)*) => {
-        $crate::error::AhkError::DeviceNotFound(format!($($arg)*))
-    };
-    (permission, $($arg:tt)*) => {
-        $crate::error::AhkError::Permission(format!($($arg)*))
-    };
-    (invalid_key, $($arg:tt)*) => {
-        $crate::error::AhkError::InvalidKey(format!($($arg)*))
-    };
-    (service_unavailable, $($arg:tt)*) => {
-        $crate::error::AhkError::ServiceUnavailable(format!($($arg)*))
-    };
-    (timeout, $($arg:tt)*) => {
-        $crate::error::AhkError::Timeout(format!($($arg)*))
-    };
-    (internal, $($arg:tt)*) => {
-        $crate::error::AhkError::Internal(format!($($arg)*))
-    };
-}

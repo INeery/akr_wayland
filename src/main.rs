@@ -1,4 +1,4 @@
-use anyhow::Result;
+use crate::error::{Result, AhkError};
 use clap::Parser;
 use tokio::signal;
 use tracing::{info, error, warn};
@@ -119,8 +119,13 @@ async fn main() -> Result<()> {
 fn init_tracing(level: &str) -> Result<()> {
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-    let filter = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new(level))?;
+    let filter = match EnvFilter::try_from_default_env() {
+        Ok(f) => f,
+        Err(_) => {
+            EnvFilter::try_new(level)
+                .map_err(|e| AhkError::Internal(format!("Invalid log level '{}': {}", level, e)))?
+        }
+    };
 
     tracing_subscriber::registry()
         .with(filter)

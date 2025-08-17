@@ -19,7 +19,7 @@ use tracing::{error, info};
 
 pub struct KeyRepeater {
     config: Arc<Config>,
-    virtual_device: Arc<VirtualDevice>, // ✅ Используем Arc для безопасного разделения
+    virtual_device: Arc<VirtualDevice>,
     dry_run: bool,
     active_window: Arc<RwLock<Option<WindowInfo>>>,
     active_repeaters: Arc<DashMap<u64, RepeaterTask>>,
@@ -182,7 +182,7 @@ impl KeyRepeater {
     /// Обработка нажатия клавиши
     async fn handle_key_press(&self, event: &KeyEvent) -> Result<()> {
         let combination_id = event.combination_id();
-        let key_hash = event.key_only_hash(); // ✅ ИСПРАВЛЕНИЕ: Используем key_only_hash для устойчивости к race conditions
+        let key_hash = event.key_only_hash();
 
         info!(
             "Получено нажатие клавиши для повторения: {}",
@@ -225,7 +225,7 @@ impl KeyRepeater {
         }
 
         // Отправляем оригинальное событие отпускания
-        let original_release_event = VirtualKeyEvent::release(event.key_code, event.modifiers); // ✅ Без clone - Copy type
+        let original_release_event = VirtualKeyEvent::release(event.key_code, event.modifiers);
         if let Err(e) = self.virtual_device.send_event(original_release_event) {
             error!(
                 "Не удалось отправить оригинальное событие отпускания: {}",

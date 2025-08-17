@@ -54,6 +54,50 @@ impl KeyNameToEvdevCode {
             "backspace" => 14,   // KEY_BACKSPACE
             "tab" => 15,         // KEY_TAB
 
+            // Знаки пунктуации и прочие клавиши раскладки
+            "minus" => 12,           // KEY_MINUS (-)
+            "equal" => 13,           // KEY_EQUAL (=)
+            "leftbrace" => 26,       // KEY_LEFTBRACE ([)
+            "rightbrace" => 27,      // KEY_RIGHTBRACE (])
+            "backslash" => 43,       // KEY_BACKSLASH (\\)
+            "semicolon" => 39,       // KEY_SEMICOLON (;)
+            "apostrophe" => 40,      // KEY_APOSTROPHE (')
+            "grave" => 41,           // KEY_GRAVE (`)
+            "comma" => 51,           // KEY_COMMA (,)
+            "dot" => 52,             // KEY_DOT (.)
+            "slash" => 53,           // KEY_SLASH (/)
+
+            // Навигация/редакция
+            "insert" => 110,         // KEY_INSERT
+            "delete" => 111,         // KEY_DELETE
+            "home" => 102,           // KEY_HOME
+            "end" => 107,            // KEY_END
+            "pageup" => 104,         // KEY_PAGEUP
+            "pagedown" => 109,       // KEY_PAGEDOWN
+
+            // Системные
+            "printscreen" => 99,     // KEY_SYSRQ (PrintScreen)
+            "scrolllock" => 70,      // KEY_SCROLLLOCK
+            "pause" => 119,          // KEY_PAUSE
+
+            // Numpad
+            "kp0" => 82,             // KEY_KP0
+            "kp1" => 79,             // KEY_KP1
+            "kp2" => 80,             // KEY_KP2
+            "kp3" => 81,             // KEY_KP3
+            "kp4" => 75,             // KEY_KP4
+            "kp5" => 76,             // KEY_KP5
+            "kp6" => 77,             // KEY_KP6
+            "kp7" => 71,             // KEY_KP7
+            "kp8" => 72,             // KEY_KP8
+            "kp9" => 73,             // KEY_KP9
+            "kpdecimal" => 83,       // KEY_KPDOT
+            "kpdivide" => 98,        // KEY_KPSLASH
+            "kpmultiply" => 55,      // KEY_KPASTERISK
+            "kpadd" => 78,           // KEY_KPPLUS
+            "kpsubtract" => 74,      // KEY_KPMINUS
+            "kpenter" => 96,         // KEY_KPENTER
+
             // Модификаторы
             "ctrl" => 29,        // KEY_LEFTCTRL
             "alt" => 56,         // KEY_LEFTALT
@@ -162,6 +206,50 @@ impl KeyNameToEvdevCode {
             87 => Some("f11"),        // KEY_F11
             88 => Some("f12"),        // KEY_F12
 
+            // Пунктуация
+            12 => Some("minus"),      // KEY_MINUS
+            13 => Some("equal"),      // KEY_EQUAL
+            26 => Some("leftbrace"),  // KEY_LEFTBRACE
+            27 => Some("rightbrace"), // KEY_RIGHTBRACE
+            43 => Some("backslash"),  // KEY_BACKSLASH
+            39 => Some("semicolon"),  // KEY_SEMICOLON
+            40 => Some("apostrophe"), // KEY_APOSTROPHE
+            41 => Some("grave"),      // KEY_GRAVE
+            51 => Some("comma"),      // KEY_COMMA
+            52 => Some("dot"),        // KEY_DOT
+            53 => Some("slash"),      // KEY_SLASH
+
+            // Навигация/редакция
+            110 => Some("insert"),    // KEY_INSERT
+            111 => Some("delete"),    // KEY_DELETE
+            102 => Some("home"),      // KEY_HOME
+            107 => Some("end"),       // KEY_END
+            104 => Some("pageup"),    // KEY_PAGEUP
+            109 => Some("pagedown"),  // KEY_PAGEDOWN
+
+            // Системные
+            99 => Some("printscreen"),// KEY_SYSRQ
+            70 => Some("scrolllock"), // KEY_SCROLLLOCK
+            119 => Some("pause"),     // KEY_PAUSE
+
+            // Numpad
+            82 => Some("kp0"),
+            79 => Some("kp1"),
+            80 => Some("kp2"),
+            81 => Some("kp3"),
+            75 => Some("kp4"),
+            76 => Some("kp5"),
+            77 => Some("kp6"),
+            71 => Some("kp7"),
+            72 => Some("kp8"),
+            73 => Some("kp9"),
+            83 => Some("kpdecimal"),
+            98 => Some("kpdivide"),
+            55 => Some("kpmultiply"),
+            78 => Some("kpadd"),
+            74 => Some("kpsubtract"),
+            96 => Some("kpenter"),
+
             _ => None,
         }
     }
@@ -215,5 +303,70 @@ mod tests {
         assert_eq!(KeyNameToEvdevCode::translate("F12").unwrap(), 88);
         assert_eq!(KeyNameToEvdevCode::reverse_translate(59), Some("f1"));
         assert_eq!(KeyNameToEvdevCode::reverse_translate(88), Some("f12"));
+    }
+
+    #[test]
+    fn test_punctuation_keys_translate_and_reverse() {
+        assert_eq!(KeyNameToEvdevCode::translate("minus").unwrap(), 12);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(12), Some("minus"));
+        assert_eq!(KeyNameToEvdevCode::translate("equal").unwrap(), 13);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(13), Some("equal"));
+        assert_eq!(KeyNameToEvdevCode::translate("leftbrace").unwrap(), 26);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(26), Some("leftbrace"));
+        assert_eq!(KeyNameToEvdevCode::translate("semicolon").unwrap(), 39);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(39), Some("semicolon"));
+        assert_eq!(KeyNameToEvdevCode::translate("apostrophe").unwrap(), 40);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(40), Some("apostrophe"));
+        assert_eq!(KeyNameToEvdevCode::translate("backslash").unwrap(), 43);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(43), Some("backslash"));
+        assert_eq!(KeyNameToEvdevCode::translate("grave").unwrap(), 41);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(41), Some("grave"));
+        assert_eq!(KeyNameToEvdevCode::translate("comma").unwrap(), 51);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(51), Some("comma"));
+        assert_eq!(KeyNameToEvdevCode::translate("dot").unwrap(), 52);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(52), Some("dot"));
+        assert_eq!(KeyNameToEvdevCode::translate("slash").unwrap(), 53);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(53), Some("slash"));
+    }
+
+    #[test]
+    fn test_navigation_system_numpad_keys() {
+        // Navigation
+        assert_eq!(KeyNameToEvdevCode::translate("insert").unwrap(), 110);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(110), Some("insert"));
+        assert_eq!(KeyNameToEvdevCode::translate("delete").unwrap(), 111);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(111), Some("delete"));
+        assert_eq!(KeyNameToEvdevCode::translate("home").unwrap(), 102);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(102), Some("home"));
+        assert_eq!(KeyNameToEvdevCode::translate("end").unwrap(), 107);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(107), Some("end"));
+        assert_eq!(KeyNameToEvdevCode::translate("pageup").unwrap(), 104);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(104), Some("pageup"));
+        assert_eq!(KeyNameToEvdevCode::translate("pagedown").unwrap(), 109);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(109), Some("pagedown"));
+
+        // System
+        assert_eq!(KeyNameToEvdevCode::translate("printscreen").unwrap(), 99);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(99), Some("printscreen"));
+        assert_eq!(KeyNameToEvdevCode::translate("scrolllock").unwrap(), 70);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(70), Some("scrolllock"));
+        assert_eq!(KeyNameToEvdevCode::translate("pause").unwrap(), 119);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(119), Some("pause"));
+
+        // Numpad
+        assert_eq!(KeyNameToEvdevCode::translate("kp0").unwrap(), 82);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(82), Some("kp0"));
+        assert_eq!(KeyNameToEvdevCode::translate("kpadd").unwrap(), 78);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(78), Some("kpadd"));
+        assert_eq!(KeyNameToEvdevCode::translate("kpsubtract").unwrap(), 74);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(74), Some("kpsubtract"));
+        assert_eq!(KeyNameToEvdevCode::translate("kpmultiply").unwrap(), 55);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(55), Some("kpmultiply"));
+        assert_eq!(KeyNameToEvdevCode::translate("kpdivide").unwrap(), 98);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(98), Some("kpdivide"));
+        assert_eq!(KeyNameToEvdevCode::translate("kpdecimal").unwrap(), 83);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(83), Some("kpdecimal"));
+        assert_eq!(KeyNameToEvdevCode::translate("kpenter").unwrap(), 96);
+        assert_eq!(KeyNameToEvdevCode::reverse_translate(96), Some("kpenter"));
     }
 }

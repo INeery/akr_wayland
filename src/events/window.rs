@@ -31,10 +31,16 @@ impl WindowInfo {
         self
     }
 
-    /// Проверить, соответствует ли окно паттерну
+    /// Проверить, соответствует ли окно паттерну (регистронезависимо)
     #[allow(dead_code)]
     pub fn matches_pattern(&self, pattern: &str) -> bool {
-        self.title.contains(pattern) || self.class.contains(pattern)
+        if pattern.is_empty() {
+            return true;
+        }
+        let pattern_lower = pattern.to_lowercase();
+        let title_lower = self.title.to_lowercase();
+        let class_lower = self.class.to_lowercase();
+        title_lower.contains(&pattern_lower) || class_lower.contains(&pattern_lower)
     }
 
     /// Проверить, соответствует ли окно любому из паттернов

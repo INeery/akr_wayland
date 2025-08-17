@@ -1,4 +1,5 @@
-use anyhow::{Context, Result};
+use anyhow::Context;
+use crate::error::Result;
 use figment::{
     providers::{Env, Format, Toml},
     Figment,
@@ -129,42 +130,42 @@ impl Config {
         // Валидация настроек логирования
         match self.logging.level.as_str() {
             "trace" | "debug" | "info" | "warn" | "error" => {}
-            _ => anyhow::bail!("Неверный уровень логирования: {}", self.logging.level),
+            _ => return Err(anyhow::anyhow!("Неверный уровень логирования: {}", self.logging.level).into()),
         }
 
         match self.logging.format.as_str() {
             "pretty" | "json" => {}
-            _ => anyhow::bail!("Неверный формат логирования: {}", self.logging.format),
+            _ => return Err(anyhow::anyhow!("Неверный формат логирования: {}", self.logging.format).into()),
         }
 
         // Валидация настроек повторения
         if self.repeat.repeat_delay_ms == 0 {
-            anyhow::bail!("repeat_delay_ms должно быть больше 0");
+            return Err(anyhow::anyhow!("repeat_delay_ms должно быть больше 0").into());
         }
 
         // Валидация настроек окон
         match self.window.detection_mode.as_str() {
             "dbus" | "polling" => {}
-            _ => anyhow::bail!(
+            _ => return Err(anyhow::anyhow!(
                 "Неверный режим детекции окон: {}",
                 self.window.detection_mode
-            ),
+            ).into()),
         }
 
         if self.window.polling_interval_ms < 100 {
-            anyhow::bail!("polling_interval_ms должно быть минимум 100");
+            return Err(anyhow::anyhow!("polling_interval_ms должно быть минимум 100").into());
         }
 
         // Валидация маппингов
         for (i, mapping) in self.mappings().iter().enumerate() {
             if mapping.key.is_empty() {
-                anyhow::bail!("Пустая клавиша в маппинге #{}", i + 1);
+                return Err(anyhow::anyhow!("Пустая клавиша в маппинге #{}", i + 1).into());
             }
 
             for modifier in &mapping.modifiers {
                 match modifier.as_str() {
                     "ctrl" | "alt" | "shift" | "super" => {}
-                    _ => anyhow::bail!("Неверный модификатор '{}' в маппинге #{}", modifier, i + 1),
+                    _ => return Err(anyhow::anyhow!("Неверный модификатор '{}' в маппинге #{}", modifier, i + 1).into()),
                 }
             }
         }
@@ -265,25 +266,68 @@ mod tests {
     fn test_should_repeat_key() {
         let mut config = Config::default();
         config.mappings = vec![
-            KeyMapping {
-                key: "j".to_string(),
-                modifiers: vec![],
-            },
-            KeyMapping {
-                key: "space".to_string(),
-                modifiers: vec!["ctrl".to_string()],
-            },
+            KeyMapping { key: "j".to_string(), modifiers: vec![] },
+            KeyMapping { key: "space".to_string(), modifiers: vec!["ctrl".to_string()] },
         ];
         config.window.window_title_patterns = vec!["nvim".to_string()];
-
-        // Перестраиваем оптимизационные индексы после изменения конфигурации
         config.build_optimization_indexes();
-
-        // Должно повторяться для vim
         assert!(config.should_repeat_key("j", &[], "nvim - file.txt"));
-
-        // Не должно повторяться для другого окна
         assert!(!config.should_repeat_key("j", &[], "browser"));
+    }
+
+    #[test]
+    fn test_mapping_logic_examples_and_anti_examples() {
+        // 1) mappings = [{ key = "1", modifiers = [] }] -> only bare key
+        let mut config1 = Config::default();
+        config1.mappings = vec![ KeyMapping { key: "1".into(), modifiers: vec![] } ];
+        config1.window.window_title_patterns = vec![]; // any window
+        config1.build_optimization_indexes();
+        assert!(config1.should_repeat_key("1", &[], "any"));
+        assert!(!config1.should_repeat_key("1", &["ctrl".into()], "any"));
+        assert!(!config1.should_repeat_key("1", &["shift".into()], "any"));
+
+        // 2) mappings = [{ key = "1", modifiers = ["ctrl"] }]
+        let mut config2 = Config::default();
+        config2.mappings = vec![ KeyMapping { key: "1".into(), modifiers: vec!["ctrl".into()] } ];
+        config2.window.window_title_patterns = vec![];
+        config2.build_optimization_indexes();
+        assert!(config2.should_repeat_key("1", &[], "any"));
+        assert!(config2.should_repeat_key("1", &["ctrl".into()], "any"));
+        assert!(!config2.should_repeat_key("1", &["ctrl".into(), "alt".into()], "any"));
+        assert!(!config2.should_repeat_key("1", &["shift".into()], "any"));
+
+        // 3) mappings = [{ key = "space", modifiers = ["ctrl","alt"] }]
+        let mut config3 = Config::default();
+        config3.mappings = vec![ KeyMapping { key: "space".into(), modifiers: vec!["ctrl".into(), "alt".into()] } ];
+        config3.window.window_title_patterns = vec![];
+        config3.build_optimization_indexes();
+        assert!(config3.should_repeat_key("space", &[], "any"));
+        assert!(config3.should_repeat_key("space", &["ctrl".into()], "any"));
+        assert!(config3.should_repeat_key("space", &["alt".into()], "any"));
+        assert!(config3.should_repeat_key("space", &["ctrl".into(), "alt".into()], "any"));
+        assert!(!config3.should_repeat_key("space", &["shift".into()], "any"));
+
+        // Window patterns behavior
+        let mut config4 = Config::default();
+        config4.mappings = vec![ KeyMapping { key: "j".into(), modifiers: vec![] } ];
+        config4.window.window_title_patterns = vec!["nvim".into()];
+        config4.build_optimization_indexes();
+        assert!(config4.should_repeat_key("j", &[], "NVIM — file.txt"));
+        assert!(!config4.should_repeat_key("j", &[], "browser"));
+
+        // Key not in mappings -> never repeat
+        let mut config5 = Config::default();
+        config5.mappings = vec![];
+        config5.window.window_title_patterns.clear();
+        config5.build_optimization_indexes();
+        assert!(!config5.should_repeat_key("k", &[], "any"));
+
+        // Наличие key достаточно для голой клавиши даже если есть modifiers в маппинге
+        let mut config6 = Config::default();
+        config6.mappings = vec![ KeyMapping { key: "space".into(), modifiers: vec!["ctrl".into()] } ];
+        config6.window.window_title_patterns.clear();
+        config6.build_optimization_indexes();
+        assert!(config6.should_repeat_key("space", &[], "any"));
     }
 
     #[test]
