@@ -187,8 +187,13 @@ impl Config {
                 return true;
             }
 
-            // Одна аллокация + предварительно нормализованные паттерны
-            let window_title_lower = window_title.to_lowercase();
+            // Минимизируем аллокации: понижаем регистр только если есть верхний
+            use std::borrow::Cow;
+            let window_title_lower: Cow<str> = if window_title.chars().any(|c| c.is_uppercase()) {
+                Cow::Owned(window_title.to_lowercase())
+            } else {
+                Cow::Borrowed(window_title)
+            };
             return self
                 .pattern_set_lower
                 .iter()
@@ -222,8 +227,13 @@ impl Config {
                         return true;
                     }
 
-                    // Используем предварительно нормализованные паттерны
-                    let window_title_lower = window_title.to_lowercase();
+                    // Используем предварительно нормализованные паттерны и понижаем регистр только при необходимости
+                    use std::borrow::Cow;
+                    let window_title_lower: Cow<str> = if window_title.chars().any(|c| c.is_uppercase()) {
+                        Cow::Owned(window_title.to_lowercase())
+                    } else {
+                        Cow::Borrowed(window_title)
+                    };
                     return self
                         .pattern_set_lower
                         .iter()

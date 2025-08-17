@@ -2,16 +2,13 @@ use crate::config::Config;
 use crate::debug_if_enabled;
 use crate::error::Result;
 use crate::events::{
-    KeyCode, KeyEvent, KeyState, Modifiers, VirtualKeyEvent, WindowEvent, WindowInfo,
+    KeyCode, KeyEvent, KeyState, Modifiers, VirtualKeyEvent, WindowEvent,
 };
 use crate::mappings::key_name_to_evdev_code::KeyNameToEvdevCode;
 use crate::services::VirtualDevice;
+use crate::services::window_context::WindowContext;
 use dashmap::DashMap;
-use parking_lot::RwLock;
-use std::collections::hash_map::DefaultHasher;
-use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, Duration};
@@ -21,9 +18,8 @@ pub struct KeyRepeater {
     config: Arc<Config>,
     virtual_device: Arc<VirtualDevice>,
     dry_run: bool,
-    active_window: Arc<RwLock<Option<WindowInfo>>>,
     active_repeaters: Arc<DashMap<u64, RepeaterTask>>,
-    window_cache: Arc<WindowCache>,
+    window_ctx: Arc<dyn crate::services::window_context::WindowContext>,
     repetition_enabled: Arc<AtomicBool>,
 }
 
@@ -31,26 +27,25 @@ impl KeyRepeater {
     pub fn new(config: Arc<Config>, virtual_device: Arc<VirtualDevice>, dry_run: bool) -> Result<Self> {
         info!("Инициализация KeyRepeater (dry_run: {})", dry_run);
 
-        let window_cache = Arc::new(WindowCache::new());
-        // Инициализируем patterns_hash при создании
-        window_cache.update_patterns_hash(&config.window.window_title_patterns);
+        let ctx = Arc::new(crate::services::window_context::DefaultWindowContext::new());
+        // Инициализируем hash паттернов при создании
+        ctx.update_patterns_hash(&config.window.window_title_patterns);
 
         Ok(Self {
             config,
             virtual_device,
             dry_run,
-            active_window: Arc::new(RwLock::new(None)),
             active_repeaters: Arc::new(DashMap::new()),
-            window_cache,
+            window_ctx: ctx,
             repetition_enabled: Arc::new(AtomicBool::new(true)), // По умолчанию повторы включены
         })
     }
 
     /// Оптимизированная проверка повторения с кэшированием
     fn should_repeat_cached(&self, key_name: &str, modifiers: &[String]) -> bool {
-        // Проверяем кэш без блокировок
-        let current_window_hash = self.window_cache.title_hash.load(Ordering::Relaxed);
-        let patterns_hash = self.window_cache.patterns_hash.load(Ordering::Relaxed);
+        // Проверяем кэш без блокировок (хеши заголовка и паттернов)
+        let current_window_hash = self.window_ctx.get_title_hash();
+        let patterns_hash = self.window_ctx.get_patterns_hash();
 
         // Включаем модификаторы в ключ кэша для корректности
         let modifiers_str = modifiers.join(",");
@@ -59,23 +54,27 @@ impl KeyRepeater {
             key_name, modifiers_str, current_window_hash, patterns_hash
         );
 
-        if let Some(&result) = self.window_cache.should_repeat_cache.read().get(&cache_key) {
+        if let Some(result) = self.window_ctx.get_cached_decision(&cache_key) {
             return result;
         }
 
         // Fallback к полной проверке и обновление кэша
-        let window_title = self.window_cache.get_cached_title();
+        let window_title = self.window_ctx.get_title_lower();
         let result = self
             .config
             .should_repeat_key(key_name, modifiers, &window_title);
-        self.window_cache
-            .should_repeat_cache
-            .write()
-            .insert(cache_key, result);
+        self.window_ctx.put_cached_decision(cache_key, result);
         result
     }
 
-    /// Обработка события клавиши
+    /// Обработка события клавиши.
+    ///
+    /// Architectural contract:
+    /// - KeyRepeater receives ALL keyboard events from KeyboardListener.
+    /// - This is the ONLY place where decisions about key repetition are made,
+    ///   using Config::should_repeat_key().
+    /// - If repetition is not required, the original event is forwarded without
+    ///   any modifications via VirtualDevice.
     pub async fn handle_key_event(&self, event: &KeyEvent) -> Result<()> {
         debug_if_enabled!("Обработка события клавиши: {}", event);
 
@@ -117,8 +116,8 @@ impl KeyRepeater {
                     debug_if_enabled!("Повторы отключены, пропускаем клавишу '{}'", key_name);
                     false
                 } else {
-                    // Используем кэшированный заголовок окна вместо RwLock read
-                    let window_title = self.window_cache.get_cached_title();
+                    // Используем кэшированный заголовок окна из контекста
+                    let window_title = self.window_ctx.get_title_lower();
 
                     debug_if_enabled!(
                         "KeyRepeater проверяет повторение для клавиши '{}' с заголовком окна: '{}'",
@@ -240,14 +239,8 @@ impl KeyRepeater {
     pub async fn handle_window_event(&self, event: WindowEvent) -> Result<()> {
         debug_if_enabled!("Обработка события окна: {}", event);
 
-        // Обновляем активное окно
-        {
-            let mut active_window = self.active_window.write();
-            *active_window = Some(event.window.clone());
-        }
-
-        // Обновляем кэш заголовка окна для быстрого доступа без RwLock
-        self.window_cache.update_window_title(&event.window.title);
+        // Обновляем кэш заголовка окна через контекст
+        self.window_ctx.update_title(&event.window.title);
 
         info!("Активное окно изменено на: {}", event.window);
 
@@ -365,14 +358,14 @@ impl KeyRepeater {
                 );
             } else {
                 // Отправляем нажатие
-                let press_event = VirtualKeyEvent::press(key_code, modifiers); // ✅ Без clone - Copy type
+                let press_event = VirtualKeyEvent::press(key_code, modifiers);
                 if let Err(e) = virtual_device.send_event(press_event) {
                     error!("Ошибка отправки события нажатия: {}", e);
                     break;
                 }
 
                 // Отправляем отпускание сразу (без задержки для лучшей производительности)
-                let release_event = VirtualKeyEvent::release(key_code, modifiers); // ✅ Без clone - Copy type
+                let release_event = VirtualKeyEvent::release(key_code, modifiers);
                 if let Err(e) = virtual_device.send_event(release_event) {
                     error!("Ошибка отправки события отпускания: {}", e);
                     break;
@@ -402,53 +395,6 @@ struct RepeaterTask {
 }
 
 
-/// Кэш для оптимизации доступа к заголовку окна без RwLock contention
-struct WindowCache {
-    title_hash: AtomicU64,
-    title_lower: RwLock<String>,
-    patterns_hash: AtomicU64,
-    should_repeat_cache: RwLock<HashMap<String, bool>>,
-}
-
-impl WindowCache {
-    fn new() -> Self {
-        Self {
-            title_hash: AtomicU64::new(0),
-            title_lower: RwLock::new(String::new()),
-            patterns_hash: AtomicU64::new(0),
-            should_repeat_cache: RwLock::new(HashMap::new()),
-        }
-    }
-
-    fn update_window_title(&self, title: &str) {
-        let mut hasher = DefaultHasher::new();
-        title.hash(&mut hasher);
-        let new_hash = hasher.finish();
-
-        let old_hash = self.title_hash.swap(new_hash, Ordering::Relaxed);
-        if old_hash != new_hash {
-            *self.title_lower.write() = title.to_lowercase();
-            // Очищаем кэш при смене окна
-            self.should_repeat_cache.write().clear();
-        }
-    }
-
-    fn update_patterns_hash(&self, patterns: &[String]) {
-        let mut hasher = DefaultHasher::new();
-        patterns.hash(&mut hasher);
-        let new_hash = hasher.finish();
-
-        let old_hash = self.patterns_hash.swap(new_hash, Ordering::Relaxed);
-        if old_hash != new_hash {
-            // Очищаем кэш при изменении паттернов
-            self.should_repeat_cache.write().clear();
-        }
-    }
-
-    fn get_cached_title(&self) -> String {
-        self.title_lower.read().clone()
-    }
-}
 
 #[cfg(test)]
 mod tests {
