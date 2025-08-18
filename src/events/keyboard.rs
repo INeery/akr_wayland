@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use smallvec::SmallVec;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
@@ -135,25 +134,6 @@ impl Modifiers {
         result
     }
 
-    // Оптимизированная версия без аллокаций
-    #[allow(dead_code)]
-    pub fn to_string_vec(&self) -> SmallVec<[&'static str; 4]> {
-        let mut result = SmallVec::new();
-        if self.bits & Self::CTRL != 0 {
-            result.push("ctrl");
-        }
-        if self.bits & Self::ALT != 0 {
-            result.push("alt");
-        }
-        if self.bits & Self::SHIFT != 0 {
-            result.push("shift");
-        }
-        if self.bits & Self::SUPER != 0 {
-            result.push("super");
-        }
-        result
-    }
-
     #[allow(dead_code)]
     pub fn from_vec(modifiers: &[String]) -> Self {
         let mut result = Self::new();
@@ -186,20 +166,6 @@ impl fmt::Display for Modifiers {
     }
 }
 
-// Именованные константы для device_id (нулевой overhead)
-pub mod device_ids {
-    pub const LISTENER_VIRTUAL_KEYBOARD: u8 = 0;
-    pub const REPEATER_VIRTUAL_KEYBOARD: u8 = 1;
-    
-    pub fn name(device_id: u8) -> &'static str {
-        match device_id {
-            LISTENER_VIRTUAL_KEYBOARD => "Listener Virtual Keyboard",
-            REPEATER_VIRTUAL_KEYBOARD => "Repeater Virtual Keyboard",
-            _ => "Unknown Device",
-        }
-    }
-}
-
 /// Событие клавиатуры
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyEvent {
@@ -207,24 +173,17 @@ pub struct KeyEvent {
     pub state: KeyState,
     pub modifiers: Modifiers,
     pub timestamp: std::time::Instant,
-    pub device_id: u8,
 }
 
 impl KeyEvent {
     #[allow(dead_code)]
-    pub fn new(key_code: KeyCode, state: KeyState, modifiers: Modifiers, device_id: u8) -> Self {
+    pub fn new(key_code: KeyCode, state: KeyState, modifiers: Modifiers) -> Self {
         Self {
             key_code,
             state,
             modifiers,
             timestamp: std::time::Instant::now(),
-            device_id,
         }
-    }
-
-    /// Получить имя устройства без аллокации
-    pub fn device_name(&self) -> &'static str {
-        device_ids::name(self.device_id)
     }
 
     /// Получить уникальный идентификатор комбинации клавиш
@@ -257,9 +216,8 @@ impl fmt::Display for KeyEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{}[{}] {:?} ({})",
+            "{} {:?} ({})",
             self.combination_id(),
-            self.device_name(),
             self.state,
             self.timestamp.elapsed().as_millis()
         )
@@ -296,15 +254,12 @@ mod tests {
         let event1 = KeyEvent::new(
             KeyCode::new(42),
             KeyState::Pressed,
-            Modifiers::new(),
-            0, // device_id
-        );
+            Modifiers::new());
 
         let event2 = KeyEvent::new(
             KeyCode::new(42),
             KeyState::Pressed,
             Modifiers::new().with_ctrl(true),
-            0, // device_id
         );
 
         assert_eq!(event1.combination_id(), "42");
@@ -316,20 +271,19 @@ mod tests {
         let press_event = KeyEvent::new(
             KeyCode::new(42),
             KeyState::Pressed,
-            Modifiers::new().with_ctrl(true),
-            0,
-        );
+            Modifiers::new().with_ctrl(true));
 
         let release_event = KeyEvent::new(
             KeyCode::new(42),
             KeyState::Released,
-            Modifiers::new().with_ctrl(true),
-            0,
-        );
+            Modifiers::new().with_ctrl(true));
 
         // Press и Release события должны иметь одинаковый hash
-        assert_eq!(press_event.combination_hash(), release_event.combination_hash());
-        
+        assert_eq!(
+            press_event.combination_hash(),
+            release_event.combination_hash()
+        );
+
         // Но разные combination_id из-за разного состояния? Нет, combination_id не включает state
         assert_eq!(press_event.combination_id(), release_event.combination_id());
     }

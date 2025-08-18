@@ -219,7 +219,7 @@ impl KeyRepeater {
         );
 
         // СНАЧАЛА отправляем оригинальное событие нажатия
-        let original_press_event = VirtualKeyEvent::press(event.key_code, event.modifiers); // ✅ Без clone - Copy type
+        let original_press_event = VirtualKeyEvent::press(event.key_code, event.modifiers);
         if let Err(e) = self.virtual_device.send_event(original_press_event) {
             error!("Не удалось отправить оригинальное событие нажатия: {}", e);
         }
@@ -444,9 +444,7 @@ mod tests {
         let key_event = KeyEvent::new(
             KeyCode::new(42), // произвольный код клавиши
             KeyState::Pressed,
-            Modifiers::new(),
-            0,
-        );
+            Modifiers::new());
 
         // Запускаем повторитель
         key_repeater.start_repeater(&key_event).await;
@@ -481,7 +479,7 @@ mod tests {
     #[tokio::test]
     async fn test_stop_all_repeaters_gracefully_with_empty_map() {
         let config = Arc::new(Config::default());
-        let vd = Arc::new(crate::services::VirtualDevice::new("TestVD", true).unwrap());
+        let vd = Arc::new(VirtualDevice::new("TestVD", true).unwrap());
         let key_repeater = KeyRepeater::new(config, vd, true).unwrap();
 
         // Проверяем, что метод корректно работает с пустым HashMap
@@ -507,7 +505,7 @@ mod tests {
         let config = Arc::new(config);
 
         // Создаем KeyRepeater в dry_run режиме
-        let vd = Arc::new(crate::services::VirtualDevice::new("TestVD", true).unwrap());
+        let vd = Arc::new(VirtualDevice::new("TestVD", true).unwrap());
         let repeater = KeyRepeater::new(config.clone(), vd, true).unwrap();
 
         // Проверяем, что повторы изначально включены
@@ -517,9 +515,7 @@ mod tests {
         let f12_press = KeyEvent::new(
             KeyCode::new(88), // F12 keycode
             KeyState::Pressed,
-            Modifiers::new(),
-            0,
-        );
+            Modifiers::new());
 
         // Нажимаем F12 - должно переключить состояние на выключено
         repeater.handle_key_event(&f12_press).await.unwrap();
@@ -533,9 +529,7 @@ mod tests {
         let j_press = KeyEvent::new(
             KeyCode::new(36), // 'j' keycode
             KeyState::Pressed,
-            Modifiers::new(),
-            0,
-        );
+            Modifiers::new());
 
         // Когда повторы включены, 'j' должно обрабатываться как повторяемая клавиша
         // (проверяем, что не возникает ошибок)
@@ -552,24 +546,20 @@ mod tests {
     #[tokio::test]
     async fn test_modifier_race_condition_fixed() {
         let config = Arc::new(Config::default());
-        let vd = Arc::new(crate::services::VirtualDevice::new("TestVD", true).unwrap());
+        let vd = Arc::new(VirtualDevice::new("TestVD", true).unwrap());
         let key_repeater = KeyRepeater::new(config, vd, true).unwrap();
 
         // Создаем press событие с модификатором
         let press_event = KeyEvent::new(
             KeyCode::new(42),
             KeyState::Pressed,
-            Modifiers::new().with_ctrl(true),
-            0,
-        );
+            Modifiers::new().with_ctrl(true));
 
         // Создаем release событие БЕЗ модификатора (имитируем race condition)
         let release_event = KeyEvent::new(
             KeyCode::new(42),
             KeyState::Released,
-            Modifiers::new(), // Модификатор уже отпущен!
-            0,
-        );
+            Modifiers::new()); // Модификатор уже отпущен!
 
         // Запускаем повторитель
         key_repeater.start_repeater(&press_event).await;

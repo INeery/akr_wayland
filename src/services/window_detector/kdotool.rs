@@ -2,15 +2,13 @@ use crate::events::WindowInfo;
 use crate::error::{AhkError, Result};
 use std::process::Command;
 use tracing::debug;
-use once_cell::sync::Lazy;
 use std::collections::HashMap;
 
 pub struct KdotoolDetector;
 
-// Кэшируем переменные окружения для D-Bus при работе под sudo
-static ENV_CACHE: Lazy<HashMap<String, String>> = Lazy::new(|| {
+fn build_env_overrides() -> HashMap<String, String> {
     let mut env_vars = HashMap::new();
-    
+
     if std::env::var("USER").unwrap_or_default() == "root" {
         if let Ok(sudo_user) = std::env::var("SUDO_USER") {
             if let Ok(output) = Command::new("id").args(&["-u", &sudo_user]).output() {
@@ -19,7 +17,7 @@ static ENV_CACHE: Lazy<HashMap<String, String>> = Lazy::new(|| {
                     let user_runtime_dir = format!("/run/user/{}", uid);
                     let dbus_address = format!("unix:path={}/bus", user_runtime_dir);
 
-                    debug!("Кэшируем переменные окружения для пользователя {}: uid={}", sudo_user, uid);
+                    debug!("Подставляем переменные окружения для пользователя {}: uid={}", sudo_user, uid);
                     env_vars.insert("DBUS_SESSION_BUS_ADDRESS".to_string(), dbus_address);
                     env_vars.insert("XDG_RUNTIME_DIR".to_string(), user_runtime_dir);
                     env_vars.insert("USER".to_string(), sudo_user);
@@ -27,13 +25,13 @@ static ENV_CACHE: Lazy<HashMap<String, String>> = Lazy::new(|| {
             }
         }
     }
-    
+
     if let Ok(display_var) = std::env::var("DISPLAY") {
         env_vars.insert("DISPLAY".to_string(), display_var);
     }
-    
+
     env_vars
-});
+}
 
 impl KdotoolDetector {
     pub fn new() -> Self {
@@ -52,8 +50,8 @@ impl KdotoolDetector {
             cmd
         };
 
-        // Применяем кэшированные переменные окружения
-        for (key, value) in ENV_CACHE.iter() {
+        // Применяем подстановки переменных окружения (строим на лету без глобального кэша)
+        for (key, value) in build_env_overrides() {
             cmd.env(key, value);
         }
 

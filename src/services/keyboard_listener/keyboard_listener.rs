@@ -1,7 +1,6 @@
 use crate::config::Config;
 use crate::debug_if_enabled;
 use crate::error::{AhkError, Result};
-use crate::events::keyboard::device_ids;
 use crate::events::{KeyCode, KeyEvent, KeyState, VirtualKeyEvent};
 use crate::services::{KeyRepeater, VirtualDevice};
 use crate::utils::DeviceFinder;
@@ -25,7 +24,6 @@ pub struct RealKeyboardListener {
     key_repeater: Arc<KeyRepeater>,
     virtual_device: Arc<VirtualDevice>,
     modifier_state: Arc<RwLock<ModifierState>>,
-    device_id: u8,
 }
 
 impl RealKeyboardListener {
@@ -65,7 +63,6 @@ impl RealKeyboardListener {
             key_repeater,
             virtual_device,
             modifier_state: Arc::new(RwLock::new(ModifierState::new())),
-            device_id: device_ids::LISTENER_VIRTUAL_KEYBOARD,
         })
     }
 
@@ -160,7 +157,6 @@ impl RealKeyboardListener {
                 state: key_state,
                 modifiers,
                 timestamp: std::time::Instant::now(),
-                device_id: self.device_id,
             };
 
             debug_if_enabled!("Событие клавиши: {}", key_event);
