@@ -213,7 +213,7 @@ impl KeyRepeater {
         let combination_id = event.combination_id();
         let key_hash = event.key_only_hash();
 
-        info!(
+        debug_if_enabled!(
             "Получено нажатие клавиши для повторения: {}",
             combination_id
         );
@@ -616,6 +616,36 @@ mod tests {
         repeater.window_ctx.update_title("NVIM - file");
         let res2 = repeater.should_repeat_cached("j", &[]);
         assert_eq!(res2, true);
+    }
+
+    #[tokio::test]
+    async fn test_decision_cache_respects_patterns_hash_change() {
+        // Start with patterns that match 'nvim'
+        let mut cfg = Config::default();
+        cfg.mappings = vec![crate::config::KeyMapping { key: "j".into(), modifiers: vec![] }];
+        cfg.window.window_title_patterns = vec!["nvim".into()];
+        cfg.build_optimization_indexes();
+        let cfg = Arc::new(cfg);
+        let vd = Arc::new(crate::services::VirtualDevice::new("TestVD", true).unwrap());
+        let repeater = KeyRepeater::new(cfg.clone(), vd, true).unwrap();
+
+        // Title contains NVIM -> should be true with initial patterns
+        repeater.window_ctx.update_title("NVIM - file");
+        let r1 = repeater.should_repeat_cached("j", &[]);
+        assert!(r1);
+        let len1 = repeater.decision_cache.len();
+        assert_eq!(len1, 1);
+
+        // Change patterns hash (simulate patterns change in context)
+        repeater
+            .window_ctx
+            .update_patterns_hash(&vec!["browser".to_string()]);
+
+        // Re-check: cache key includes patterns_hash, so the cache must not be reused; length should grow
+        let r2 = repeater.should_repeat_cached("j", &[]);
+        assert!(r2); // config patterns still 'nvim', so logical result remains true
+        let len2 = repeater.decision_cache.len();
+        assert_eq!(len2, len1 + 1, "new cache entry should be created when patterns_hash changes");
     }
 
 }

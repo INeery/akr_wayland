@@ -1,59 +1,72 @@
-# AKR (AHK Rust) Development Guidelines
+# AKR (AHK Rust)
 
-This document provides essential information for developers working on the AKR project, a modern key repetition utility for Linux written in Rust.
+AKR is a low-latency Linux key-repeat utility with active-window filtering. The project emphasizes clear separation of responsibilities between services, predictable behavior, and flexible configuration.
 
-## Build and Configuration Instructions
+## Features
+- Repeat only selected keys (including the bare key and allowed modifier combinations).
+- Filter by active window (substring match in the window title, case-insensitive).
+- Two window detection modes:
+  - polling — universal fallback (default). It tries available sources (xdotool/wmctrl/kdotool/sway) and works under both Wayland and X11/XWayland.
+  - dbus (optional Cargo feature) — reactive mode via D‑Bus for KDE/GNOME. If unavailable, it automatically falls back to polling.
+- Configurable repeat delay and an optional toggle key to enable/disable repetition.
 
-### System Requirements
+## System Requirements
+The application creates a virtual input device; you need appropriate permissions and the uinput module:
+1) The `uinput` kernel module is loaded.
+2) The user has access to `/dev/input` and `/dev/uinput` (usually via groups).
 
-The application requires access to input devices and the ability to create virtual input devices:
-
-1. The `uinput` kernel module must be loaded
-2. The user must have appropriate permissions to access `/dev/input` and `/dev/uinput`
-
-### Setup Commands
-
-Run these commands to set up the required permissions:
-
+### One‑time setup
 ```bash
-# Add your user to the necessary groups
+# Add your user to the required groups (re-login is required)
 sudo usermod -a -G input,uinput $USER
 
 # Load the uinput module
 sudo modprobe uinput
 
-# Configure uinput to load at boot
+# Load uinput at boot
 echo 'uinput' | sudo tee /etc/modules-load.d/uinput.conf
-
-# Log out and log back in for group changes to take effect
+# Then log out and back in so group changes take effect
 ```
 
-### Building the Project
-
-The project uses standard Cargo build commands:
-
+## Build
+Standard Cargo commands:
 ```bash
-# Development build
+# Debug build
 cargo build
 
 # Release build
 cargo build --release
 
-# Build with optimized size (as configured in Cargo.toml)
+# Release optimized for size (see release-small profile in Cargo.toml)
 cargo build --profile release-small
 ```
 
-### Configuration
+### Cargo features
+- By default the build excludes D‑Bus (minimal dependencies):
+  ```bash
+  cargo build            # without dbus
+  cargo test             # without dbus
+  ```
+- Enable the reactive D‑Bus mode only if you need it:
+  ```bash
+  cargo build --features dbus
+  cargo test  --features dbus
+  ```
 
-The application is configured through a TOML file (default: `ahk.toml`). Configuration includes:
+## Window detection modes and behavior
+Configure the mode via `window.detection_mode`:
+- `dbus`: if the binary is built with `--features dbus`, reactive tracking is used (KDE/GNOME). If the feature is not compiled in or D‑Bus is unavailable in your environment, the app automatically falls back to `polling` (with a warning in logs).
+- `polling`: universal polling without D‑Bus. At runtime it chooses available sources (e.g., sway → xdotool → wmctrl → kdotool) and also works for XWayland windows. No separate “xwayland” feature is required.
 
-- Logging settings
-- Input device configuration
-- Window detection settings
-- Key mappings
+## Configuration
+The app is configured via TOML (default `ahk.toml`). Key sections:
+- logging — log level/format.
+- input — the physical device selection (or auto).
+- repeat — repeat parameters and optional toggle key.
+- window — detection mode and window filtering.
+- mappings — the list of keys with an allow‑set of modifiers.
 
-Example configuration:
-
+Example:
 ```toml
 [logging]
 level = "info"
@@ -61,42 +74,47 @@ format = "pretty"
 filter = "ahk_rust=info"
 
 [input]
+device_path = "auto"  # auto or a specific device path
+
+[repeat]
 repeat_delay_ms = 50
-device_path = "auto"  # auto or path to device
+# Optional toggle key to enable/disable repetition, e.g. F12
+repeat_toggle_key = "f12"
 
 [window]
-detection_mode = "dbus"  # dbus, polling
+detection_mode = "polling"  # dbus | polling
 polling_interval_ms = 1000
-window_title_patterns = []  # Empty means all windows
+window_title_patterns = []    # Empty = any window
 
 # Key mappings
+# If a key appears in [[mappings]] then:
+# - the bare key is always allowed (no modifiers), and
+# - if modifiers are listed, any combination composed ONLY of these is allowed.
 [[mappings]]
 key = "j"
 modifiers = []
 
 [[mappings]]
 key = "space"
-modifiers = ["ctrl"]
+modifiers = ["ctrl", "alt"]
 ```
 
-Configuration can also be provided through environment variables with the `AHK_` prefix.
+Environment variables with the `AHK_` prefix can override configuration (see figment/env).
 
-## Testing Information
-
-### Running Tests
-
-The project uses standard Rust testing infrastructure. Tests can be run with:
-
+## Testing
+Standard Rust commands:
 ```bash
-# Run all tests
+# All tests
 cargo test
 
-# Run tests for a specific module
-cargo test services::keycode_map
-
-# Run a specific test
-cargo test services::keycode_map::tests::test_basic_key_mapping
-
-# Run tests with output
+# With output
 cargo test -- --nocapture
+```
+
+## Quick start
+1) Set up permissions (see “One‑time setup”).
+2) Edit `ahk.toml` (see “Configuration”).
+3) Build and run:
+```bash
+cargo run --release -- --config ahk.toml
 ```

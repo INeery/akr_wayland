@@ -363,4 +363,63 @@ mod tests {
 
         assert_eq!(keys, expected);
     }
+
+    // 3.2: Empty patterns mean "any window" for bare and allowed modifier combinations
+    #[test]
+    fn test_window_patterns_empty_matches_any_window() {
+        let mut cfg = Config::default();
+        cfg.mappings = vec![
+            KeyMapping { key: "space".into(), modifiers: vec!["ctrl".into(), "alt".into()] },
+        ];
+        cfg.window.window_title_patterns.clear(); // empty -> any window
+        cfg.build_optimization_indexes();
+
+        // Bare key works in any window
+        assert!(cfg.should_repeat_key("space", &[], "browser"));
+        assert!(cfg.should_repeat_key("space", &[], "NVIM - file"));
+
+        // Allowed modifier subsets/supersets (within allowed set) also work in any window
+        assert!(cfg.should_repeat_key("space", &vec!["ctrl".into()], "any"));
+        assert!(cfg.should_repeat_key("space", &vec!["alt".into()], "any"));
+        assert!(cfg.should_repeat_key("space", &vec!["ctrl".into(), "alt".into()], "any"));
+        // Disallowed modifier -> should not repeat even though patterns are empty
+        assert!(!cfg.should_repeat_key("space", &vec!["shift".into()], "any"));
+    }
+
+    // 3.2: Multiple patterns and case-insensitive match
+    #[test]
+    fn test_window_patterns_multiple_and_case_insensitive() {
+        let mut cfg = Config::default();
+        cfg.mappings = vec![ KeyMapping { key: "j".into(), modifiers: vec![] } ];
+        cfg.window.window_title_patterns = vec!["nvim".into(), "term".into(), "firefox".into()];
+        cfg.build_optimization_indexes();
+
+        assert!(cfg.should_repeat_key("j", &[], "NVIM — file.txt"));
+        assert!(cfg.should_repeat_key("j", &[], "cool TERM"));
+        assert!(cfg.should_repeat_key("j", &[], "FIREFOX window"));
+        assert!(!cfg.should_repeat_key("j", &[], "some editor"));
+    }
+
+    // 3.3: Modifiers normalization — ignore order and duplicates
+    #[test]
+    fn test_modifiers_order_and_duplicates_normalized() {
+        let mut cfg = Config::default();
+        cfg.mappings = vec![ KeyMapping { key: "k".into(), modifiers: vec!["ctrl".into(), "alt".into()] } ];
+        cfg.window.window_title_patterns.clear(); // any window
+        cfg.build_optimization_indexes();
+
+        // Bare key always allowed when key is present
+        assert!(cfg.should_repeat_key("k", &[], "any"));
+
+        // Order-insensitive
+        assert!(cfg.should_repeat_key("k", &vec!["ctrl".into(), "alt".into()], "any"));
+        assert!(cfg.should_repeat_key("k", &vec!["alt".into(), "ctrl".into()], "any"));
+
+        // Duplicate-insensitive
+        assert!(cfg.should_repeat_key("k", &vec!["ctrl".into(), "ctrl".into(), "alt".into()], "any"));
+        assert!(cfg.should_repeat_key("k", &vec!["alt".into(), "alt".into()], "any"));
+
+        // Disallowed mod present -> reject
+        assert!(!cfg.should_repeat_key("k", &vec!["ctrl".into(), "alt".into(), "shift".into()], "any"));
+    }
 }

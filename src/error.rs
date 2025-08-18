@@ -13,7 +13,7 @@ pub enum AhkError {
     Uinput(#[from] uinput::Error),
 
     #[error("Ошибка D-Bus: {0}")]
-    DBus(#[from] zbus::Error),
+    DBus(String),
 
     #[error("Устройство не найдено: {0}")]
     DeviceNotFound(String),
