@@ -94,7 +94,6 @@ impl RealKeyboardListener {
             "Настроено {} маппингов для повторения",
             self.config.mappings.len()
         );
-        info!("✅ Используем event-driven архитектуру (без polling)");
 
         loop {
             // Event-driven approach: ждем готовности файлового дескriptора
